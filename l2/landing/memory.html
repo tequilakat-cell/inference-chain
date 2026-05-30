@@ -132,6 +132,9 @@ code{font-family:var(--mono);font-size:.9em;}
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel" src="memory.jsx"></script>
+  <script>
+    (function(){var s=localStorage.getItem('ic-rpc');if(s&&window.location.origin!=='null'&&!s.startsWith(window.location.origin))localStorage.removeItem('ic-rpc');})();
+  </script>
+  <script type="text/babel" src="memory.jsx?v=20260530"></script>
 </body>
 </html>

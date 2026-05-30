@@ -234,6 +234,9 @@ body {
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel" src="dashboard.jsx"></script>
+  <script>
+    (function(){var s=localStorage.getItem('ic-rpc');if(s&&window.location.origin!=='null'&&!s.startsWith(window.location.origin))localStorage.removeItem('ic-rpc');})();
+  </script>
+  <script type="text/babel" src="dashboard.jsx?v=20260530"></script>
 </body>
 </html>

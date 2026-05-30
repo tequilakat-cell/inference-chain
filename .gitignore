@@ -25,6 +25,14 @@ l2/data/chain.snap.json
 **/keys/*.der
 **/.inference-miner/
 
+# Model files (large GGUF binaries)
+models/
+*.gguf
+
+# OrbitDB / PeerBit runtime data
+l2/orbitdb/
+l2/peerbit/orbitdb/
+
 # macOS
 .DS_Store
 

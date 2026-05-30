@@ -1,9 +1,13 @@
 const { useState, useEffect, useRef, useCallback } = React;
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
-const DEFAULT_L2_RPC = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost"
-  ? "http://127.0.0.1:8545"
-  : `${window.location.origin}/rpc`;
+const _host = window.location.hostname;
+const _origin = window.location.origin;
+// When loaded via file:// or an unknown origin, fall back to the chain's direct address.
+const DEFAULT_L2_RPC =
+  (_host === "127.0.0.1" || _host === "localhost") ? "http://127.0.0.1:8545" :
+  (_origin && _origin !== "null")                  ? _origin :
+                                                     "http://192.168.198.48:18545";
 const DEFAULT_MODEL  = "Qwen/Qwen2.5-0.5B-Instruct";
 
 // ── Pipeline step definitions ─────────────────────────────────────────────────
@@ -461,8 +465,12 @@ function App() {
     try { return JSON.parse(localStorage.getItem("ic-dashboard-settings") || "{}"); } catch { return {}; }
   })();
 
+  // Discard a saved RPC URL if it points to a different host than the page —
+  // it's stale from a previous deployment and will appear "unreachable".
+  const savedRpc = savedSettings.l2Rpc;
+  const savedRpcSameOrigin = savedRpc && (_origin === "null" || savedRpc.startsWith(_origin));
   const [settings, setSettings] = useState({
-    l2Rpc: savedSettings.l2Rpc || DEFAULT_L2_RPC,
+    l2Rpc: (savedRpcSameOrigin ? savedRpc : null) || DEFAULT_L2_RPC,
   });
   const [showSettings, setShowSettings] = useState(false);
 

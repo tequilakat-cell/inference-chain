@@ -6,7 +6,7 @@ const _origin = window.location.origin;
 // When loaded via file:// or an unknown origin, fall back to the chain's direct address.
 const DEFAULT_L2_RPC =
   (_host === "127.0.0.1" || _host === "localhost") ? "http://127.0.0.1:8545" :
-  (_origin && _origin !== "null")                  ? _origin :
+  (_origin && _origin !== "null")                  ? _origin + "/rpc" :
                                                      "http://192.168.198.48:18545";
 const DEFAULT_MODEL  = "Qwen/Qwen2.5-0.5B-Instruct";
 

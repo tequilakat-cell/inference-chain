@@ -5,7 +5,7 @@ const _host   = window.location.hostname;
 const _origin = window.location.origin;
 const _defaultRpc =
   (_host === "127.0.0.1" || _host === "localhost") ? "http://127.0.0.1:8545" :
-  (_origin && _origin !== "null")                  ? _origin :
+  (_origin && _origin !== "null")                  ? _origin + "/rpc" :
                                                      "http://192.168.198.48:18545";
 const _savedRpc = localStorage.getItem("ic-rpc");
 const L2_RPC = (_savedRpc && (_origin === "null" || _savedRpc.startsWith(_origin)) ? _savedRpc : null) || _defaultRpc;

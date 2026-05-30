@@ -7,8 +7,8 @@ export PYTHONPATH="$(pwd)"
 export PRIVATE_KEY="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 # Auto-detect Python: prefer the project venv, fall back to system python3
-if [ -f "$HOME/INFT/.venv/bin/python3" ]; then
-  PYTHON="$HOME/INFT/.venv/bin/python3"
+if [ -f "$HOME/inference-chain/.venv/bin/python3" ]; then
+  PYTHON="$HOME/inference-chain/.venv/bin/python3"
 elif [ -f "$(pwd)/.venv/bin/python3" ]; then
   PYTHON="$(pwd)/.venv/bin/python3"
 else

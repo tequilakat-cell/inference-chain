@@ -1,8 +1,8 @@
 {
   "private_key": "0e78d827a32f4546c52c9c7b02354adcf9b3c78045a76b2ad57f85e342f700bf",
   "models": {
-    "Qwen/Qwen2.5-0.5B-Instruct": "/home/khadas/INFT/models/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-    "unsloth/Qwen3.6-27B": "/home/khadas/INFT/models/Qwen3.6-27B-Q4_K_M.gguf"
+    "Qwen/Qwen2.5-0.5B-Instruct": "/home/khadas/inference-chain/models/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    "unsloth/Qwen3.6-27B": "/home/khadas/inference-chain/models/Qwen3.6-27B-Q4_K_M.gguf"
   },
   "l2_rpc_url": "http://104.197.6.1/rpc",
   "l2_chain_id": 2026,

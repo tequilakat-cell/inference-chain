@@ -1,7 +1,7 @@
 {
   "private_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "models": {
-    "Qwen/Qwen2.5-0.5B-Instruct": "~/INFT/models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+    "Qwen/Qwen2.5-0.5B-Instruct": "~/inference-chain/models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
   },
   "l2_rpc_url": "http://104.197.6.1/rpc",
   "l2_chain_id": 2026,

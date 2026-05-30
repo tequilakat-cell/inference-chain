@@ -7,7 +7,7 @@ export SEQUENCER_PRIVATE_KEY="4da245a36de729dcbe5263060b146e570674a384a047394fe0
 export PYTHONPATH="$(pwd)"
 
 echo "[chain] Starting local L2 node on RPC :18545 P2P :19000 health :19095"
-exec /home/khadas/INFT/.venv/bin/python3 -m chain \
+exec /home/khadas/inference-chain/.venv/bin/python3 -m chain \
   --genesis "$(pwd)/test_local/genesis.json" \
   --rpc-port 18545 \
   --p2p-port 19000 \

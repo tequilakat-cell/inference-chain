@@ -29,10 +29,6 @@ l2/data/chain.snap.json
 models/
 *.gguf
 
-# OrbitDB / PeerBit runtime data
-l2/orbitdb/
-l2/peerbit/orbitdb/
-
 # macOS
 .DS_Store
 

@@ -60,7 +60,7 @@ from chain.p2p.thought_protocol import (
     handle_thought_broadcast, handle_sync_request, handle_sync_response,
     send_sync_request,
 )
-from .peerbit_client import PeerbitClient
+from .registry_client import RegistryClient
 from .thought_extractor import extract_thinking, build_proof
 
 # pg_inft context injector (lives in inference/miner/memory/)
@@ -210,11 +210,12 @@ class L2Miner:
         # Queue of offers declined due to capacity — retried when shards finish
         self._pending_offers: list[dict] = []
 
-        # Peerbit distributed registry — starts as sidecar, degrades gracefully if unavailable
-        self._peerbit = PeerbitClient(
+        # Miner registry — writes to pg_inft, degrades gracefully if pg_dsn absent
+        self._registry = RegistryClient(
             address=self.address,
             models=list(cfg.models.keys()),
             backend=cfg.backend or "cpu",
+            dsn=cfg.pg_dsn,
             p2p_addr=f"ws://{cfg.p2p_host}:{cfg.p2p_port}",
             l2_chain_id=cfg.l2_chain_id,
             max_shards=cfg.max_concurrent_shards,
@@ -283,8 +284,8 @@ class L2Miner:
         self._p2p.subscribe(TOPICS["thought_broadcast"],    self._on_thought_broadcast)
         self._p2p.subscribe(TOPICS["thought_sync"],         self._on_thought_sync)
 
-        # Start Peerbit distributed registry (non-blocking, degrades gracefully)
-        asyncio.create_task(self._peerbit.start(start_sidecar=True))
+        # Start pg_inft registry (non-blocking, degrades gracefully if pg_dsn absent)
+        asyncio.create_task(self._registry.start())
 
         # Start rpc-server sidecar for pipeline parallel worker role
         self._rpc_addr = self._start_rpc_server()
@@ -556,7 +557,7 @@ class L2Miner:
             ACTIVE_SHARDS.inc()
             if self._mine_miner:
                 self._mine_miner.pause()
-            asyncio.create_task(self._peerbit.announce_job_accepted(
+            asyncio.create_task(self._registry.announce_job_accepted(
                 job_id, model_id, mode, spec.get("total_shards", 1)
             ))
             task = asyncio.create_task(
@@ -574,8 +575,8 @@ class L2Miner:
         if self._mine_miner:
             self._mine_miner.pause()
 
-        # Announce to Peerbit job board
-        asyncio.create_task(self._peerbit.announce_job_accepted(
+        # Announce to pg_inft job board
+        asyncio.create_task(self._registry.announce_job_accepted(
             job_id, model_id, spec.get("mode", "parallel_sample"), spec.get("total_shards", 1)
         ))
 
@@ -939,17 +940,17 @@ class L2Miner:
                 SHARDS_COMPLETED.inc()
                 # When capacity frees, try any queued offers
                 asyncio.create_task(self._drain_pending_offers())
-                # Log to Peerbit reputation ledger
+                # Log to pg_inft reputation ledger
                 job_id    = offer.get("job_id", "")
                 shard_idx = int(offer.get("spec", {}).get("shard_index", 0))
                 output_hash = keccak256_hex(result["output"].encode())
-                asyncio.create_task(self._peerbit.log_shard_complete(job_id, shard_idx, result["latency_ms"]))
-                asyncio.create_task(self._peerbit.announce_job_complete(job_id, output_hash, result["latency_ms"]))
+                asyncio.create_task(self._registry.log_shard_complete(job_id, shard_idx, result["latency_ms"]))
+                asyncio.create_task(self._registry.announce_job_complete(job_id, output_hash, result["latency_ms"]))
         except Exception as exc:
             SHARDS_FAILED.inc()
             job_id    = offer.get("job_id", "")
             shard_idx = int(offer.get("spec", {}).get("shard_index", 0))
-            asyncio.create_task(self._peerbit.log_shard_failed(job_id, shard_idx))
+            asyncio.create_task(self._registry.log_shard_failed(job_id, shard_idx))
             log.error("shard_failed key=%s err=%s", shard_key, exc, exc_info=True)
         finally:
             self._active_shards.pop(shard_key, None)
@@ -1217,9 +1218,9 @@ class L2Miner:
                     "rpc_addr":        self._rpc_addr,
                     "live_tps":        live_tps,
                 })
-                # Peerbit heartbeat every 60s
+                # Registry heartbeat every 60s
                 if tick % 1 == 0:
-                    await self._peerbit.heartbeat()
+                    await self._registry.heartbeat()
                 # Phase 4: evict expired KV cache files every 10 minutes
                 if tick % 10 == 0:
                     self._kv_cache.evict_expired()
@@ -1257,7 +1258,7 @@ class L2Miner:
 
     def stop(self) -> None:
         self._shutdown.set()
-        asyncio.create_task(self._peerbit.stop())
+        asyncio.create_task(self._registry.stop())
         if self._rpc_proc and self._rpc_proc.poll() is None:
             self._rpc_proc.terminate()
             log.info("rpc_server_stopped pid=%d", self._rpc_proc.pid)

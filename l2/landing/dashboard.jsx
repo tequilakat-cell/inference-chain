@@ -4,7 +4,6 @@ const { useState, useEffect, useRef, useCallback } = React;
 const DEFAULT_L2_RPC = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost"
   ? "http://127.0.0.1:8545"
   : `${window.location.origin}/rpc`;
-const ORBIT_URL      = "http://127.0.0.1:7700";
 const DEFAULT_MODEL  = "Qwen/Qwen2.5-0.5B-Instruct";
 
 // ── Pipeline step definitions ─────────────────────────────────────────────────
@@ -554,14 +553,6 @@ function App() {
       const active = await rpc(settings.l2Rpc, "inft_getActiveMiners", []);
       if (Array.isArray(active) && active.length > 0) minersArr = active;
     } catch {}
-
-    if (minersArr.length === 0) {
-      // Fallback: OrbitDB sidecar (local, may not be running)
-      try {
-        const ms = await fetch(`${ORBIT_URL}/miners`).then(r => r.json());
-        if (Array.isArray(ms)) minersArr = ms;
-      } catch {}
-    }
 
     setMiners(minersArr);
 

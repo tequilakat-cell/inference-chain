@@ -12,6 +12,8 @@ import json
 import logging
 from pathlib import Path
 
+import mimetypes
+
 from aiohttp import web
 
 from .handlers import RPCHandlers
@@ -20,6 +22,9 @@ log = logging.getLogger("chain.rpc.server")
 
 # Landing pages live next to this package: l2/landing/
 _LANDING_DIR = Path(__file__).parent.parent.parent / "landing"
+
+# Ensure .jsx is served as JavaScript so browsers don't block script execution
+mimetypes.add_type("application/javascript", ".jsx")
 
 
 class RPCServer:

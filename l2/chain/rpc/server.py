@@ -10,12 +10,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from pathlib import Path
 
 from aiohttp import web
 
 from .handlers import RPCHandlers
 
 log = logging.getLogger("chain.rpc.server")
+
+# Landing pages live next to this package: l2/landing/
+_LANDING_DIR = Path(__file__).parent.parent.parent / "landing"
 
 
 class RPCServer:
@@ -26,10 +30,17 @@ class RPCServer:
 
     async def run(self) -> None:
         app = web.Application(middlewares=[self._cors_middleware])
-        app.router.add_post("/", self._handle_http)
-        app.router.add_route("OPTIONS", "/", self._handle_options)
-        app.router.add_get("/ws", self._handle_ws)
+        # JSON-RPC: POST / and POST /rpc (nginx-compatible alias)
+        app.router.add_post("/",    self._handle_http)
+        app.router.add_post("/rpc", self._handle_http)
+        app.router.add_route("OPTIONS", "/",    self._handle_options)
+        app.router.add_route("OPTIONS", "/rpc", self._handle_options)
+        app.router.add_get("/ws",     self._handle_ws)
         app.router.add_get("/health", self._handle_health)
+        # Serve landing pages: /dashboard.html, /explorer.html, etc.
+        if _LANDING_DIR.is_dir():
+            app.router.add_get("/",            self._handle_index)
+            app.router.add_static("/", _LANDING_DIR, show_index=True)
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, self._host, self._port)
@@ -50,6 +61,9 @@ class RPCServer:
             "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
         })
+
+    async def _handle_index(self, req: web.Request) -> web.Response:
+        return web.HTTPFound("/dashboard.html")
 
     async def _handle_health(self, req: web.Request) -> web.Response:
         result = await self._handlers.inft_getChainInfo([])

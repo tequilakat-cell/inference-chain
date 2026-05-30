@@ -4,10 +4,10 @@
     "Qwen/Qwen2.5-0.5B-Instruct": "/home/khadas/inference-chain/models/qwen2.5-0.5b-instruct-q4_k_m.gguf",
     "unsloth/Qwen3.6-27B": "/home/khadas/inference-chain/models/Qwen3.6-27B-Q4_K_M.gguf"
   },
-  "l2_rpc_url": "http://104.197.6.1/rpc",
+  "l2_rpc_url": "http://127.0.0.1:18545",
   "l2_chain_id": 2026,
   "bootstrap_peers": [
-    "ws://104.197.6.1:9000"
+    "ws://127.0.0.1:19000"
   ],
   "p2p_host": "0.0.0.0",
   "p2p_port": 19002,

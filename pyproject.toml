@@ -27,6 +27,8 @@ dependencies = [
   "prometheus-client>=0.21.0",
   # Utilities
   "python-dotenv>=1.0.0",
+  # PostgreSQL (pg_inft registry + thought store)
+  "asyncpg>=0.29.0",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,26 @@
+{
+  "private_key": "0e78d827a32f4546c52c9c7b02354adcf9b3c78045a76b2ad57f85e342f700bf",
+  "models": {
+    "Qwen/Qwen2.5-0.5B-Instruct": "/home/khadas/INFT/models/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    "unsloth/Qwen3.6-27B": "/home/khadas/INFT/models/Qwen3.6-27B-Q4_K_M.gguf"
+  },
+  "l2_rpc_url": "http://104.197.6.1/rpc",
+  "l2_chain_id": 2026,
+  "bootstrap_peers": [
+    "ws://104.197.6.1:9000"
+  ],
+  "p2p_host": "0.0.0.0",
+  "p2p_port": 19002,
+  "health_port": 19092,
+  "max_concurrent_shards": 4,
+  "key_dir": "~/.inference-miner/keys-khadas",
+  "log_level": "INFO",
+  "backend": "llama_cpp",
+  "encryption_enabled": false,
+  "min_stake_inft": 100,
+  "rpc_port": 50052,
+  "rpc_advertise_host": "192.168.198.48",
+  "rpc_server_bin": "/home/khadas/llama_cpp_src/build/bin/rpc-server",
+  "max_memory_gb": 10,
+  "pg_dsn": "postgresql://khadas:khadas@localhost/inft_memory"
+}

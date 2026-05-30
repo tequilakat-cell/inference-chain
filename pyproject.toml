@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name            = "inft"
+version         = "0.1.0"
+description     = "INFT monorepo — L1 InferenceToken + L2 InferenceChain"
+requires-python = ">=3.11"
+
+dependencies = [
+  # Blockchain / crypto
+  "web3>=7.0.0",
+  "eth-account>=0.13.0",
+  "cryptography>=43.0.0",
+  "pycryptodome>=3.20.0",
+  # Networking
+  "aiohttp>=3.10.0",
+  "websockets>=13.0",
+  "requests>=2.32.0",
+  # API
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "pydantic>=2.0.0",
+  "slowapi>=0.1.9",
+  # Observability
+  "prometheus-client>=0.21.0",
+  # Utilities
+  "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+miner = [
+  "llama-cpp-python",
+]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+]
+
+[project.scripts]
+# L2 services
+ic-sequencer = "l2.chain.sequencer:main"
+ic-miner     = "l2.miner.l2_miner:main"
+# L1 miner
+l1-miner     = "l1.miner.miner:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["l1*", "l2*"]

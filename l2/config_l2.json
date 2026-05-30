@@ -1,0 +1,20 @@
+{
+  "private_key": "4da245a36de729dcbe5263060b146e570674a384a047394fe0491015cf72095f",
+  "models": {
+    "Qwen/Qwen2.5-0.5B-Instruct": "mlx-community/Qwen2.5-0.5B-Instruct-4bit"
+  },
+  "l2_rpc_url": "http://104.197.6.1/rpc",
+  "l2_chain_id": 2026,
+  "bootstrap_peers": [
+    "ws://104.197.6.1:9000"
+  ],
+  "p2p_host": "0.0.0.0",
+  "p2p_port": 9001,
+  "health_port": 9090,
+  "max_concurrent_shards": 4,
+  "key_dir": "~/.inference-miner/keys",
+  "log_level": "INFO",
+  "backend": "vulkan",
+  "encryption_enabled": false,
+  "min_stake_inft": 100
+}

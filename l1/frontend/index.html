@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<html lang="en" x-data="app()" x-init="init()">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>InferenceToken — Proof-of-Inference Network</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: { DEFAULT: '#7c6af7', dark: '#5b4de0', light: '#a89cfa' },
+          surface: { DEFAULT: '#16181d', elevated: '#1e2028' },
+          border: { DEFAULT: '#2a2d36', light: '#3a3d4a' },
+        },
+        fontFamily: { mono: ['"JetBrains Mono"', '"Fira Code"', 'monospace'] },
+        animation: {
+          'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+          'fade-in': 'fadeIn 0.3s ease-out',
+          'slide-up': 'slideUp 0.3s ease-out',
+        },
+        keyframes: {
+          fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+          slideUp: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+        },
+      }
+    }
+  }
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  [x-cloak] { display: none !important; }
+  body { background: #0d0d0f; color: #e5e7eb; font-family: 'JetBrains Mono', monospace; }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #16181d; }
+  ::-webkit-scrollbar-thumb { background: #2a2d36; border-radius: 3px; }
+  .pill { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold tracking-wide; }
+  .pill-open      { @apply bg-emerald-900/40 text-emerald-400; }
+  .pill-claimed   { @apply bg-amber-900/40  text-amber-400; }
+  .pill-submitted { @apply bg-indigo-900/40 text-indigo-400; }
+  .pill-complete  { @apply bg-emerald-900/40 text-emerald-300; }
+  .pill-disputed  { @apply bg-red-900/40    text-red-400; }
+  .pill-expired   { @apply bg-zinc-800/40   text-zinc-500; }
+  .card  { @apply bg-surface border border-border rounded-xl p-5 transition-colors hover:border-border-light/50; }
+  .input { @apply w-full bg-[#0d0d0f] border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/30 text-gray-200 placeholder-zinc-600 transition-all; }
+  .btn-primary { @apply w-full bg-brand hover:bg-brand-dark text-white font-semibold py-2.5 px-4 rounded-lg transition-all text-sm active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed; }
+  .btn-secondary { @apply w-full bg-border hover:bg-border-light text-gray-300 font-medium py-2.5 px-4 rounded-lg transition-all text-sm active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed; }
+  .btn-sm      { @apply bg-border hover:bg-border-light text-gray-300 font-medium py-1.5 px-3 rounded-md text-xs transition-all active:scale-[0.97]; }
+  .stat-label { @apply text-xs text-zinc-500 uppercase tracking-widest; }
+  .stat-value { @apply text-lg font-bold text-brand; }
+  .tab { @apply px-3 py-1.5 text-xs rounded-lg transition-colors cursor-pointer font-medium; }
+  .tab-active   { @apply bg-brand/20 text-brand; }
+  .tab-inactive { @apply text-zinc-500 hover:text-gray-300 hover:bg-border/50; }
+  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .live-dot { animation: pulse-dot 2s ease-in-out infinite; }
+  .glow { box-shadow: 0 0 20px rgba(124,106,247,0.15); }
+  .gradient-text { background: linear-gradient(135deg, #7c6af7, #a89cfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .output-box { @apply mt-2 p-3 bg-emerald-950/20 border border-emerald-800/30 rounded-lg text-xs text-emerald-300/90 whitespace-pre-wrap max-h-60 overflow-y-auto font-mono leading-relaxed; }
+  .modal-overlay { @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4; animation: fadeIn 0.2s ease-out; }
+  .modal-content { @apply bg-surface border border-border rounded-2xl p-6 max-w-2xl w-full max-h-[85vh] overflow-y-auto shadow-2xl; animation: slideUp 0.2s ease-out; }
+  .toggle-track { @apply w-10 h-5 rounded-full transition-colors cursor-pointer relative; }
+  .toggle-thumb { @apply w-4 h-4 rounded-full bg-white absolute top-0.5 transition-all; }
+</style>
+</head>
+<body class="min-h-screen" x-cloak>
+
+<!-- ── Header ─────────────────────────────────────────────────────────────── -->
+<header class="sticky top-0 z-40 border-b border-border bg-[#0d0d0f]/90 backdrop-blur px-4 md:px-6 py-3 flex items-center gap-3">
+  <div class="flex items-center gap-2 shrink-0">
+    <div class="w-7 h-7 rounded-lg bg-brand/20 flex items-center justify-center text-brand font-bold text-sm glow">∞</div>
+    <span class="font-bold text-sm md:text-base">Inference<span class="text-brand">Token</span></span>
+    <span class="pill bg-brand/20 text-brand text-[10px] hidden sm:inline-flex">INFT</span>
+  </div>
+
+  <!-- Network stats strip (hidden on small screens) -->
+  <div class="hidden md:flex items-center gap-4 ml-4 text-[11px] text-zinc-500 overflow-x-auto">
+    <span class="whitespace-nowrap">Minted: <span class="text-gray-300" x-text="fmt(stats.totalMinted) + ' INFT'">—</span></span>
+    <span class="whitespace-nowrap">Jobs: <span class="text-gray-300" x-text="stats.jobsCompleted">—</span></span>
+    <span class="whitespace-nowrap">Miners: <span class="text-gray-300" x-text="stats.minerCount">—</span></span>
+    <span class="whitespace-nowrap">Open: <span class="text-emerald-400 font-semibold" x-text="openJobCount">—</span></span>
+  </div>
+
+  <div class="ml-auto flex items-center gap-2 md:gap-3 shrink-0">
+    <!-- Live indicator -->
+    <div class="flex items-center gap-1.5 text-[11px] text-zinc-500">
+      <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 live-dot"></span>
+      <span class="hidden sm:inline" x-text="connected ? 'Live' : 'Offline'"></span>
+    </div>
+
+    <!-- Connect button -->
+    <template x-if="!connected">
+      <button @click="connectWallet()" class="btn-primary !w-auto px-3 md:px-4 py-1.5 text-xs">
+        Connect
+      </button>
+    </template>
+    <template x-if="connected">
+      <div class="flex items-center gap-2 bg-surface border border-border rounded-lg px-2 md:px-3 py-1.5 text-xs max-w-[200px]">
+        <div class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></div>
+        <span class="text-gray-300 truncate" x-text="shortAddr(myAddress)"></span>
+        <span class="text-brand font-bold text-[10px] md:text-xs shrink-0" x-text="fmt(myInft) + ' INFT'"></span>
+      </div>
+    </template>
+  </div>
+</header>
+
+<!-- ── Layout ─────────────────────────────────────────────────────────────── -->
+<div class="max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-6 grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-4 md:gap-6">
+
+  <!-- Left sidebar -->
+  <div class="flex flex-col gap-4 order-2 lg:order-1">
+
+    <!-- Wallet card -->
+    <div class="card" x-show="connected">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="stat-label">Wallet</h2>
+        <span class="text-[10px] text-zinc-600" x-text="shortAddr(myAddress)"></span>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-[#0d0d0f] rounded-lg p-3">
+          <div class="text-[10px] text-zinc-500 mb-1">ETH</div>
+          <div class="text-sm font-bold" x-text="parseFloat(myEth).toFixed(4)"></div>
+        </div>
+        <div class="bg-[#0d0d0f] rounded-lg p-3">
+          <div class="text-[10px] text-zinc-500 mb-1">INFT</div>
+          <div class="text-sm font-bold text-brand" x-text="fmt(myInft)"></div>
+        </div>
+        <div class="bg-[#0d0d0f] rounded-lg p-3">
+          <div class="text-[10px] text-zinc-500 mb-1">Earned</div>
+          <div class="text-sm font-bold text-emerald-400" x-text="fmt(myTotalEarned)"></div>
+        </div>
+        <div class="bg-[#0d0d0f] rounded-lg p-3">
+          <div class="text-[10px] text-zinc-500 mb-1">Rep</div>
+          <div class="text-sm font-bold" x-text="myRep + ' ✓'" :class="myRep > 0 ? 'text-emerald-400' : 'text-zinc-500'"></div>
+        </div>
+      </div>
+      <div x-show="myCreatorEarned > 0" class="mt-2 flex justify-between bg-[#0d0d0f] rounded-lg p-3">
+        <span class="text-[10px] text-zinc-500">Creator Earnings</span>
+        <span class="text-sm font-bold text-amber-400" x-text="fmt(myCreatorEarned) + ' INFT'"></span>
+      </div>
+    </div>
+
+    <!-- Network stats card -->
+    <div class="card">
+      <h2 class="stat-label mb-3">Network</h2>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-[#0d0d0f] rounded-lg p-3">
+          <div class="text-[10px] text-zinc-500 mb-1">Minted</div>
+          <div class="text-sm font-bold" x-text="fmt(stats.totalMinted)"><span class="text-[10px] text-zinc-500"> INFT</span></div>
+        </div>
+        <div class="bg-[#0d0d0f] rounded-lg p-3">
+          <div class="text-[10px] text-zinc-500 mb-1">Max Supply</div>
+          <div class="text-sm font-bold">21M</div>
+        </div>
+        <div class="bg-[#0d0d0f] rounded-lg p-3">
+          <div class="text-[10px] text-zinc-500 mb-1">Jobs Done</div>
+          <div class="text-sm font-bold" x-text="stats.jobsCompleted"></div>
+        </div>
+        <div class="bg-[#0d0d0f] rounded-lg p-3">
+          <div class="text-[10px] text-zinc-500 mb-1">Next Halving</div>
+          <div class="text-sm font-bold text-amber-400" x-text="nextHalving"></div>
+        </div>
+      </div>
+      <!-- Emission bar -->
+      <div class="mt-3">
+        <div class="flex justify-between text-[10px] text-zinc-500 mb-1">
+          <span>Emission</span>
+          <span x-text="emissionPct + '%'"></span>
+        </div>
+        <div class="h-1.5 bg-border rounded-full overflow-hidden">
+          <div class="h-full bg-gradient-to-r from-brand to-brand-light rounded-full transition-all duration-700"
+               :style="`width:${emissionPct}%`"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab selector: Requester / Miner / Creator -->
+    <div class="card !p-2">
+      <div class="flex gap-1">
+        <button class="flex-1 tab text-center" :class="role === 'requester' ? 'tab-active' : 'tab-inactive'"
+                @click="role = 'requester'">🧑‍💻 Requester</button>
+        <button class="flex-1 tab text-center" :class="role === 'miner' ? 'tab-active' : 'tab-inactive'"
+                @click="role = 'miner'">⛏️ Miner</button>
+        <button class="flex-1 tab text-center" :class="role === 'creator' ? 'tab-active' : 'tab-inactive'"
+                @click="role = 'creator'">🎨 Creator</button>
+      </div>
+    </div>
+
+    <!-- ══════════════════ REQUESTER PANEL ══════════════════ -->
+    <template x-if="role === 'requester'">
+      <div class="flex flex-col gap-4">
+        <!-- Post job -->
+        <div class="card">
+          <h2 class="stat-label mb-3">Post Inference Job</h2>
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] text-zinc-500 block mb-1">Model</label>
+              <select x-model="form.model" class="input">
+                <option value="">Select model…</option>
+                <template x-for="m in models" :key="m.id">
+                  <option :value="m.id" x-text="m.id"></option>
+                </template>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] text-zinc-500 block mb-1">Prompt</label>
+              <textarea x-model="form.prompt" rows="3" class="input resize-none"
+                        placeholder="Ask anything…"></textarea>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-[10px] text-zinc-500 block mb-1">Max tokens</label>
+                <select x-model="form.maxTokens" class="input">
+                  <option value="256">256 → 10 INFT</option>
+                  <option value="512" selected>512 → 25 INFT</option>
+                  <option value="1024">1024 → 25 INFT</option>
+                  <option value="2048">2048 → 50 INFT</option>
+                </select>
+              </div>
+              <div class="flex items-end pb-1">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <div class="toggle-track" :class="form.encrypt ? 'bg-brand' : 'bg-border'"
+                       @click="form.encrypt = !form.encrypt">
+                    <div class="toggle-thumb" :style="form.encrypt ? 'left: 21px' : 'left: 2px'"></div>
+                  </div>
+                  <span class="text-[10px] text-zinc-500">Encrypt</span>
+                </label>
+              </div>
+            </div>
+            <div class="text-[10px] text-zinc-600 flex justify-between">
+              <span>Job fee</span><span>0.001 ETH (returned on completion)</span>
+            </div>
+            <button class="btn-primary" @click="postJob()" :disabled="posting || !connected">
+              <span x-show="!posting">🚀 Post Job — 0.001 ETH</span>
+              <span x-show="posting" class="flex items-center justify-center gap-2">
+                <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+                Posting…
+              </span>
+            </button>
+            <div x-show="postMsg" class="text-xs rounded-lg p-3 bg-[#0d0d0f] border border-border"
+                 :class="postError ? 'text-red-400 border-red-900/40' : 'text-emerald-400 border-emerald-900/40'"
+                 x-text="postMsg"></div>
+          </div>
+        </div>
+
+        <!-- My Posted Jobs -->
+        <div class="card" x-show="myPostedJobs.length > 0">
+          <h2 class="stat-label mb-3">My Posted Jobs</h2>
+          <div class="space-y-2">
+            <template x-for="job in myPostedJobs" :key="job.id">
+              <div class="bg-[#0d0d0f] rounded-lg p-3 border border-border/50">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-sm font-bold text-brand">#<span x-text="job.id"></span></span>
+                  <span :class="'pill pill-' + statusKey(job.status)" x-text="statusLabel(job.status)"></span>
+                </div>
+                <div class="text-[10px] text-zinc-500 truncate mb-2" x-text="job.modelId"></div>
+                <div x-show="job.prompt" class="text-xs text-zinc-400 truncate" x-text="job.prompt"></div>
+                <div x-show="job.output && job.status === 3" class="output-box mt-2" x-text="job.output"></div>
+                <div class="mt-2 flex gap-2">
+                  <button x-show="job.status === 0 && job.expired"
+                          @click="reclaimJob(job.id)" class="btn-sm !text-amber-400">Reclaim</button>
+                  <button x-show="job.status === 3" @click="showJobDetail(job)"
+                          class="btn-sm !text-emerald-400">View Output</button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- ══════════════════ MINER PANEL ══════════════════ -->
+    <template x-if="role === 'miner'">
+      <div class="flex flex-col gap-4">
+
+        <!-- Register as Miner -->
+        <div class="card" x-show="!isMinerRegistered">
+          <h2 class="stat-label mb-3">Register as Miner</h2>
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] text-zinc-500 block mb-1">Supported Models (comma-separated HF IDs)</label>
+              <input x-model="minerForm.models" class="input" placeholder="mistralai/Mistral-7B-Instruct-v0.3, meta-llama/Llama-3.1-8B-Instruct" />
+            </div>
+            <div>
+              <label class="text-[10px] text-zinc-500 block mb-1">RSA Public Key (hex, optional)</label>
+              <input x-model="minerForm.pubKey" class="input" placeholder="0x... or leave empty" />
+            </div>
+            <button class="btn-primary" @click="registerMiner()" :disabled="minerPosting || !connected">
+              <span x-show="!minerPosting">⛏️ Register as Miner</span>
+              <span x-show="minerPosting" class="flex items-center justify-center gap-2">
+                <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+                Registering…
+              </span>
+            </button>
+            <div x-show="minerMsg" class="text-xs rounded-lg p-3 bg-[#0d0d0f] border"
+                 :class="minerError ? 'text-red-400 border-red-900/40' : 'text-emerald-400 border-emerald-900/40'"
+                 x-text="minerMsg"></div>
+          </div>
+        </div>
+
+        <!-- Registered as Miner status -->
+        <div class="card" x-show="isMinerRegistered">
+          <h2 class="stat-label mb-3">✅ Registered Miner</h2>
+          <div class="text-xs text-zinc-400 space-y-1">
+            <p>You are registered as an active miner on the network.</p>
+            <p class="mt-2">To run inference, use the <span class="text-brand">miner/miner.py</span>
+            script which handles claiming, inference, submission, and finalization.</p>
+          </div>
+          <div class="mt-3 flex gap-2">
+            <button @click="deactivateMiner()" class="btn-sm !text-red-400">Deactivate</button>
+            <button @click="refresh()" class="btn-sm">Refresh</button>
+          </div>
+        </div>
+
+        <!-- Claimable Jobs -->
+        <div class="card">
+          <h2 class="stat-label mb-3">Open Jobs for Claim</h2>
+          <div x-show="openJobs.length === 0" class="text-xs text-zinc-600 text-center py-4">
+            No open jobs available. Post one from the Requester panel!
+          </div>
+          <div class="space-y-2 max-h-80 overflow-y-auto">
+            <template x-for="job in openJobs" :key="job.id">
+              <div class="bg-[#0d0d0f] rounded-lg p-3 border border-border/50 hover:border-brand/30 transition-colors">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-sm font-bold text-brand">#<span x-text="job.id"></span></span>
+                  <span class="pill pill-open">Open</span>
+                </div>
+                <div class="text-[10px] text-zinc-500 truncate mb-1" x-text="job.modelId"></div>
+                <div x-show="job.prompt" class="text-xs text-zinc-400 truncate" x-text="job.prompt"></div>
+                <div class="mt-2 flex gap-2">
+                  <button @click="claimJob(job.id)" class="btn-sm !text-amber-400">Claim (0.005 ETH)</button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- My Claimed Jobs (Submit / Finalize) -->
+        <div class="card" x-show="claimedJobs.length > 0">
+          <h2 class="stat-label mb-3">My Claimed Jobs</h2>
+          <div class="space-y-2">
+            <template x-for="job in claimedJobs" :key="job.id">
+              <div class="bg-[#0d0d0f] rounded-lg p-3 border border-border/50">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-sm font-bold text-brand">#<span x-text="job.id"></span></span>
+                  <span :class="'pill pill-' + statusKey(job.status)" x-text="statusLabel(job.status)"></span>
+                </div>
+                <div class="text-[10px] text-zinc-500 truncate mb-1" x-text="job.modelId"></div>
+                <div x-show="job.prompt" class="text-xs text-zinc-400 truncate" x-text="job.prompt"></div>
+
+                <!-- Submit result form -->
+                <div x-show="job.status === 1" class="mt-2 space-y-2">
+                  <textarea x-model="submitOutputs[job.id]" rows="2" class="input resize-none text-xs"
+                            placeholder="Paste inference output here…"></textarea>
+                  <button @click="submitResult(job.id)" class="btn-primary !text-xs !py-1.5"
+                          :disabled="!submitOutputs[job.id]">📤 Submit Result</button>
+                </div>
+
+                <!-- Finalize button -->
+                <div x-show="job.status === 2" class="mt-2">
+                  <div class="text-[10px] text-zinc-600 mb-1">⏳ Waiting for challenge window…</div>
+                  <button @click="finalizeJob(job.id)" class="btn-sm !text-emerald-400">Finalize</button>
+                </div>
+
+                <!-- Challenge (for submitted jobs not mine) -->
+                <div x-show="job.status === 2 && !job.isMiner" class="mt-2">
+                  <button @click="challengeJob(job.id)" class="btn-sm !text-red-400">Challenge (0.005 ETH)</button>
+                </div>
+
+                <div x-show="job.output && job.status === 3" class="output-box mt-2" x-text="job.output"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- ══════════════════ CREATOR PANEL ══════════════════ -->
+    <template x-if="role === 'creator'">
+      <div class="flex flex-col gap-4">
+        <!-- Register Model -->
+        <div class="card">
+          <h2 class="stat-label mb-3">Register Your Model</h2>
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] text-zinc-500 block mb-1">HuggingFace Model ID</label>
+              <input x-model="regForm.modelId" class="input" placeholder="your-org/your-model" />
+            </div>
+            <div>
+              <label class="text-[10px] text-zinc-500 block mb-1">Royalty (%)</label>
+              <select x-model="regForm.royalty" class="input">
+                <option value="0">0% — free, exposure only</option>
+                <option value="500">5%</option>
+                <option value="1000">10%</option>
+                <option value="2000" selected>20% — recommended</option>
+                <option value="3000">30%</option>
+                <option value="5000">50% — max</option>
+              </select>
+            </div>
+            <div class="text-[10px] text-zinc-600">
+              You earn <span x-text="regForm.royalty / 100"></span>% of tokens minted when miners run your model.
+            </div>
+            <button class="btn-primary" @click="registerModel()" :disabled="regPosting || !connected">
+              <span x-show="!regPosting">🎨 Register Model</span>
+              <span x-show="regPosting" class="flex items-center justify-center gap-2">
+                <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+                Registering…
+              </span>
+            </button>
+            <div x-show="regMsg" class="text-xs rounded-lg p-3 bg-[#0d0d0f] border"
+                 :class="regError ? 'text-red-400 border-red-900/40' : 'text-emerald-400 border-emerald-900/40'"
+                 x-text="regMsg"></div>
+          </div>
+        </div>
+
+        <!-- My Registered Models -->
+        <div class="card" x-show="myModels.length > 0">
+          <h2 class="stat-label mb-3">My Models</h2>
+          <div class="space-y-2">
+            <template x-for="m in myModels" :key="m.id">
+              <div class="bg-[#0d0d0f] rounded-lg p-3 border border-border/50 flex items-center justify-between">
+                <div class="truncate">
+                  <span class="text-xs text-gray-300" x-text="m.id"></span>
+                  <span x-show="m.royaltyBps > 0" class="text-[10px] text-amber-400 ml-1"
+                        x-text="'⊕' + (m.royaltyBps / 100).toFixed(0) + '%'"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Creator earnings -->
+        <div class="card" x-show="myCreatorEarned > 0">
+          <h2 class="stat-label mb-3">Creator Earnings</h2>
+          <div class="text-2xl font-bold text-amber-400" x-text="fmt(myCreatorEarned) + ' INFT'"></div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Emission chart -->
+    <div class="card">
+      <h2 class="stat-label mb-3">Emission Schedule</h2>
+      <canvas id="emissionChart" height="160"></canvas>
+    </div>
+  </div>
+
+  <!-- ══════════════════ RIGHT: Job Feed ══════════════════ -->
+  <div class="flex flex-col gap-4 order-1 lg:order-2">
+
+    <!-- Tab bar -->
+    <div class="card !p-3">
+      <div class="flex items-center gap-1 flex-wrap">
+        <template x-for="t in tabs" :key="t.key">
+          <button class="tab" :class="activeTab === t.key ? 'tab-active' : 'tab-inactive'"
+                  @click="activeTab = t.key">
+            <span x-text="t.label"></span>
+            <span class="ml-1 text-[10px] opacity-60" x-text="'(' + tabCount(t.key) + ')'"></span>
+          </button>
+        </template>
+        <div class="ml-auto text-[10px] text-zinc-600 whitespace-nowrap" x-text="'Updated ' + lastUpdated"></div>
+      </div>
+    </div>
+
+    <!-- Job list -->
+    <div class="space-y-3" x-show="filteredJobs.length > 0">
+      <template x-for="job in filteredJobs" :key="job.id">
+        <div class="card !p-4 animate-fade-in"
+             :class="{'border-brand/30 glow': job.isRequester || job.isMiner}">
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex-1 min-w-0">
+              <!-- Header row -->
+              <div class="flex items-center gap-2 flex-wrap mb-1.5">
+                <span class="text-base font-bold text-brand">#<span x-text="job.id"></span></span>
+                <span :class="'pill pill-' + statusKey(job.status)" x-text="statusLabel(job.status)"></span>
+                <span x-show="job.isRequester" class="pill bg-sky-900/40 text-sky-400 text-[10px]">You</span>
+                <span x-show="job.isMiner && job.status >= 1" class="pill bg-purple-900/40 text-purple-400 text-[10px]">Miner</span>
+              </div>
+              <!-- Model -->
+              <div class="text-[10px] text-zinc-500 mb-1.5 truncate" x-text="'📦 ' + job.modelId"></div>
+              <!-- Prompt -->
+              <div x-show="job.prompt" class="text-xs text-zinc-400 truncate max-w-lg" x-text="'💬 ' + job.prompt"></div>
+              <!-- Output (when complete) -->
+              <div x-show="job.output && job.status === 3" class="output-box" x-text="job.output"></div>
+              <!-- Reward -->
+              <div x-show="job.status === 3" class="mt-1 text-[10px] text-emerald-500">
+                +<span x-text="jobReward(job.maxOutputTokens)"></span> INFT
+              </div>
+            </div>
+            <!-- Right side: time + actions -->
+            <div class="flex flex-col items-end gap-1.5 shrink-0">
+              <div class="text-[10px] text-zinc-600 whitespace-nowrap" x-text="timeAgo(job.postedAt)"></div>
+              <!-- Requester actions -->
+              <button x-show="job.status === 0 && job.isRequester && job.expired"
+                      @click="reclaimJob(job.id)" class="btn-sm !text-amber-400 text-[10px]">Reclaim</button>
+              <!-- Miner actions -->
+              <button x-show="job.status === 0 && connected && role === 'miner'"
+                      @click="claimJob(job.id)" class="btn-sm !text-amber-400 text-[10px]">Claim</button>
+              <button x-show="job.status === 2 && job.isMiner"
+                      @click="finalizeJob(job.id)" class="btn-sm !text-emerald-400 text-[10px]">Finalize</button>
+              <button x-show="job.status === 2 && !job.isMiner && connected && role === 'miner'"
+                      @click="challengeJob(job.id)" class="btn-sm !text-red-400 text-[10px]">Challenge</button>
+              <!-- Detail button -->
+              <button x-show="job.status === 3 && job.output"
+                      @click="showJobDetail(job)" class="btn-sm text-[10px]">Detail</button>
+            </div>
+          </div>
+          <!-- Footer metadata -->
+          <div class="mt-2 pt-1.5 border-t border-border/30 text-[10px] text-zinc-600 flex gap-3 flex-wrap">
+            <span>Tokens: <span class="text-zinc-400" x-text="job.maxOutputTokens"></span></span>
+            <span x-show="job.miner !== zeroAddr">
+              🧑‍🔧 <span class="text-zinc-400" x-text="shortAddr(job.miner)"></span>
+            </span>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <div x-show="filteredJobs.length === 0" class="text-center text-zinc-600 py-12 text-sm">
+      <div class="text-3xl mb-2">⛏️</div>
+      <span x-text="connected ? 'No jobs match this filter yet.' : 'Connect wallet to see jobs.'"></span>
+    </div>
+
+    <!-- Miner leaderboard -->
+    <div class="card" x-show="leaderboard.length > 0 && activeTab !== 'mine'">
+      <h2 class="stat-label mb-3">Miner Leaderboard 🏆</h2>
+      <div class="space-y-1">
+        <template x-for="(m, i) in leaderboard" :key="m.address">
+          <div class="flex items-center gap-3 py-2 border-b border-border/30 last:border-0">
+            <div class="w-5 text-center text-xs font-bold"
+                 :class="i === 0 ? 'text-amber-400' : i === 1 ? 'text-zinc-300' : i === 2 ? 'text-amber-700' : 'text-zinc-600'"
+                 x-text="i + 1"></div>
+            <div class="flex-1 min-w-0">
+              <div class="text-xs" :class="m.isMe ? 'text-brand font-bold' : 'text-gray-300'"
+                   x-text="m.isMe ? shortAddr(m.address) + ' (You)' : shortAddr(m.address)"></div>
+              <div class="text-[10px] text-zinc-500">Rep: <span x-text="m.rep"></span></div>
+            </div>
+            <div class="text-right">
+              <div class="text-xs font-bold text-brand" x-text="fmt(m.earned) + ' INFT'"></div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Model browser -->
+    <div class="card">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="stat-label">Model Browser</h2>
+        <span class="text-[10px] text-zinc-600" x-text="models.length + ' registered'"></span>
+      </div>
+      <div class="space-y-1">
+        <template x-for="m in models.slice(0, showAllModels ? 999 : 6)" :key="m.id">
+          <div class="flex items-center justify-between py-1.5 border-b border-border/30 last:border-0">
+            <div class="truncate max-w-[60%]">
+              <span class="text-xs text-gray-300" x-text="m.id"></span>
+              <span x-show="m.royaltyBps > 0" class="text-[10px] text-amber-400 ml-1"
+                    x-text="'⊕' + (m.royaltyBps / 100).toFixed(0) + '%'"></span>
+            </div>
+            <button class="btn-sm text-[10px]" @click="selectModel(m.id)">Use</button>
+          </div>
+        </template>
+        <button x-show="models.length > 6" @click="showAllModels = !showAllModels"
+                class="text-[10px] text-brand hover:text-brand-light transition-colors mt-1 block w-full text-center">
+          <span x-text="showAllModels ? '↑ Show less' : '↓ Show ' + (models.length - 6) + ' more'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ JOB DETAIL MODAL ══════════════════ -->
+<div x-show="detailModal.show" class="modal-overlay" @click.self="detailModal.show = false">
+  <div class="modal-content">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-bold text-brand">Job #<span x-text="detailModal.job?.id"></span></h2>
+      <button @click="detailModal.show = false" class="text-zinc-500 hover:text-gray-300 text-xl">&times;</button>
+    </div>
+    <div class="space-y-4 text-sm">
+      <div class="flex items-center gap-2">
+        <span :class="'pill pill-' + statusKey(detailModal.job?.status)" x-text="statusLabel(detailModal.job?.status)"></span>
+        <span class="text-zinc-500 text-xs" x-text="detailModal.job?.modelId"></span>
+      </div>
+      <div class="grid grid-cols-2 gap-3 text-xs">
+        <div class="bg-[#0d0d0f] rounded-lg p-3">
+          <div class="text-zinc-500 mb-1">Requester</div>
+          <div class="text-gray-300" x-text="shortAddr(detailModal.job?.requester)"></div>
+        </div>
+        <div class="bg-[#0d0d0f] rounded-lg p-3">
+          <div class="text-zinc-500 mb-1">Miner</div>
+          <div class="text-gray-300" x-text="shortAddr(detailModal.job?.miner) || '—'"></div>
+        </div>
+        <div class="bg-[#0d0d0f] rounded-lg p-3">
+          <div class="text-zinc-500 mb-1">Max Tokens</div>
+          <div class="text-gray-300" x-text="detailModal.job?.maxOutputTokens"></div>
+        </div>
+        <div class="bg-[#0d0d0f] rounded-lg p-3">
+          <div class="text-zinc-500 mb-1">Reward</div>
+          <div class="text-emerald-400" x-text="'+' + jobReward(detailModal.job?.maxOutputTokens) + ' INFT'"></div>
+        </div>
+      </div>
+      <div>
+        <h3 class="text-xs text-zinc-500 mb-1">Prompt</h3>
+        <div class="bg-[#0d0d0f] border border-border rounded-lg p-3 text-xs text-gray-400 whitespace-pre-wrap max-h-32 overflow-y-auto"
+             x-text="detailModal.job?.prompt || 'Not available'"></div>
+      </div>
+      <div x-show="detailModal.job?.status === 3">
+        <h3 class="text-xs text-zinc-500 mb-1">Output</h3>
+        <div class="bg-emerald-950/20 border border-emerald-800/30 rounded-lg p-3 text-xs text-emerald-300/90 whitespace-pre-wrap max-h-60 overflow-y-auto"
+             x-text="detailModal.job?.output || 'Not available'"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast ─────────────────────────────────────────────────── -->
+<div x-show="toast.show"
+     x-transition:enter="transition ease-out duration-200"
+     x-transition:enter-start="opacity-0 translate-y-2"
+     x-transition:enter-end="opacity-100 translate-y-0"
+     x-transition:leave="transition ease-in duration-150"
+     x-transition:leave-start="opacity-100"
+     x-transition:leave-end="opacity-0"
+     class="fixed bottom-4 right-4 z-50 max-w-sm bg-surface border rounded-xl px-4 py-3 text-xs shadow-2xl"
+     :class="toast.error ? 'border-red-800 text-red-400' : 'border-emerald-800 text-emerald-400'">
+  <span x-text="toast.msg"></span>
+</div>
+
+<script>
+// ── Contract ABI (minimal) ─────────────────────────────────────
+const MINIMAL_ABI = [
+  "function postJob(string modelId, bytes encryptedInput, uint56 maxOutputTokens) payable returns (uint256)",
+  "function claimJob(uint256 jobId) payable",
+  "function submitResult(uint256 jobId, bytes encryptedOutput)",
+  "function finalizeJob(uint256 jobId)",
+  "function challengeResult(uint256 jobId) payable",
+  "function reclaimExpiredJob(uint256 jobId)",
+  "function getJob(uint256 jobId) view returns (tuple(address,uint56,uint8,address,uint64,address,uint64,bytes32,bytes32,string))",
+  "function nextJobId() view returns (uint256)",
+  "function jobsCompleted() view returns (uint256)",
+  "function totalMinted() view returns (uint256)",
+  "function MAX_SUPPLY() view returns (uint256)",
+  "function balanceOf(address) view returns (uint256)",
+  "function totalEarned(address) view returns (uint256)",
+  "function minerReputation(address) view returns (uint256)",
+  "function getModelCount() view returns (uint256)",
+  "function getModelInfo(string) view returns (tuple(address,uint16,bool))",
+  "function registerModel(string,uint16)",
+  "function registerMiner(string[],bytes)",
+  "function deactivateMiner()",
+  "function totalCreatorEarned(address) view returns (uint256)",
+  "function modelList(uint256) view returns (string)",
+  "function getRegisteredMinerCount() view returns (uint256)",
+  "function registeredMiners(uint256) view returns (address)",
+  "function getMinerProfile(address) view returns (string[],bytes,bool,uint64)",
+  "function HALVING_INTERVAL() view returns (uint256)",
+  "function BASE_REWARD_SMALL() view returns (uint256)",
+  "function BASE_REWARD_MEDIUM() view returns (uint256)",
+  "function BASE_REWARD_LARGE() view returns (uint256)",
+  "function protocolFeeBps() view returns (uint256)",
+  "function protocolFees() view returns (uint256)",
+  "event JobPosted(uint256 indexed jobId, address indexed requester, string modelId, bytes32 inputRef, bytes encryptedInput, uint56 maxOutputTokens)",
+  "event ResultSubmitted(uint256 indexed jobId, address indexed miner, bytes32 outputRef, bytes encryptedOutput)",
+  "event JobFinalized(uint256 indexed jobId, address indexed miner, uint256 tokensEarned)",
+];
+
+const STATUS_LABELS = ["Open","Claimed","Submitted","Complete","Disputed","Expired"];
+const STATUS_KEYS   = ["open","claimed","submitted","complete","disputed","expired"];
+const ZERO_ADDR     = "0x0000000000000000000000000000000000000000";
+
+function app() {
+  return {
+    // ── State ──────────────────────────────────────────────────────
+    connected:    false,
+    myAddress:    "",
+    myInft:          "0",
+    myEth:           "0",
+    myRep:           0,
+    myTotalEarned:   "0",
+    myCreatorEarned: "0",
+    isMinerRegistered: false,
+
+    stats: { totalMinted:"0", jobsCompleted:0, minerCount:0 },
+    jobs:  [],
+    models:[],
+    leaderboard:[],
+
+    role: "requester",
+
+    // Requester form
+    form: { model:"", prompt:"", maxTokens:"512", encrypt: false },
+    posting:  false,
+    postMsg:  "",
+    postError:false,
+
+    // Creator form
+    regForm: { modelId:"", royalty:"2000" },
+    regPosting: false,
+    regMsg:     "",
+    regError:   false,
+
+    // Miner form
+    minerForm: { models:"", pubKey:"" },
+    minerPosting: false,
+    minerMsg:     "",
+    minerError:   false,
+
+    // Submit outputs per job
+    submitOutputs: {},
+
+    // Detail modal
+    detailModal: { show: false, job: null },
+
+    activeTab: "all",
+    tabs: [
+      { key:"all",      label:"All" },
+      { key:"open",     label:"Open" },
+      { key:"claimed",  label:"Claimed" },
+      { key:"submitted",label:"Submitted" },
+      { key:"complete", label:"Complete" },
+      { key:"mine",     label:"Mine" },
+    ],
+
+    showAllModels: false,
+    lastUpdated:   "never",
+
+    toast: { show:false, msg:"", error:false },
+
+    provider: null,
+    signer:   null,
+    contract: null,
+    deployment: null,
+
+    zeroAddr: ZERO_ADDR,
+
+    // ── Computed ───────────────────────────────────────────────────
+    get filteredJobs() {
+      return this.jobs.filter(j => {
+        if (this.activeTab === "open")      return j.status === 0;
+        if (this.activeTab === "claimed")   return j.status === 1;
+        if (this.activeTab === "submitted") return j.status === 2;
+        if (this.activeTab === "complete")  return j.status === 3;
+        if (this.activeTab === "mine")      return j.isRequester || j.isMiner;
+        return true;
+      }).slice().reverse();
+    },
+    get openJobs() {
+      return this.jobs.filter(j => j.status === 0);
+    },
+    get claimedJobs() {
+      return this.jobs.filter(j => j.isMiner && j.status >= 1);
+    },
+    get myPostedJobs() {
+      return this.jobs.filter(j => j.isRequester);
+    },
+    get myModels() {
+      return this.models.filter(m => m.creator && m.creator.toLowerCase() === this.myAddress.toLowerCase());
+    },
+    get openJobCount() {
+      return this.jobs.filter(j => j.status === 0).length;
+    },
+    get emissionPct() {
+      const minted = parseFloat(ethers.formatEther(this.stats.totalMinted || "0"));
+      return Math.min(100, (minted / 21_000_000 * 100)).toFixed(2);
+    },
+    get nextHalving() {
+      const done = parseInt(this.stats.jobsCompleted || 0);
+      const interval = 1_000_000;
+      const next = (Math.floor(done / interval) + 1) * interval;
+      return (next - done).toLocaleString();
+    },
+
+    // ── Init ───────────────────────────────────────────────────────
+    async init() {
+      await this.loadDeployment();
+      this.buildEmissionChart();
+      if (window.ethereum?.selectedAddress) await this.connectWallet();
+    },
+
+    async loadDeployment() {
+      try {
+        const r = await fetch("../deployment.json");
+        if (r.ok) {
+          this.deployment = await r.json();
+        }
+      } catch {}
+    },
+
+    // ── Wallet ─────────────────────────────────────────────────────
+    async connectWallet() {
+      if (!window.ethereum) { this.notify("Install MetaMask or a Web3 wallet", true); return; }
+      if (!this.deployment?.address) { this.notify("Deploy the contract first (npm run deploy:local)", true); return; }
+
+      this.provider = new ethers.BrowserProvider(window.ethereum);
+      await this.provider.send("eth_requestAccounts", []);
+      this.signer   = await this.provider.getSigner();
+      this.myAddress = await this.signer.getAddress();
+      this.contract = new ethers.Contract(
+        this.deployment.address,
+        this.deployment.abi || MINIMAL_ABI,
+        this.signer
+      );
+      this.connected = true;
+
+      await this.refresh();
+      setInterval(() => this.refresh(), 10_000);
+    },
+
+    // ── Data refresh ───────────────────────────────────────────────
+    async refresh() {
+      if (!this.contract) return;
+      try {
+        await Promise.all([
+          this.loadStats(),
+          this.loadModels(),
+          this.loadJobs(),
+          this.loadLeaderboard(),
+        ]);
+        this.lastUpdated = new Date().toLocaleTimeString();
+      } catch (e) {
+        console.error("refresh error", e);
+      }
+    },
+
+    async loadStats() {
+      const [minted, done, minerCount, bal, eth, rep, earned] = await Promise.all([
+        this.contract.totalMinted(),
+        this.contract.jobsCompleted(),
+        this.contract.getRegisteredMinerCount(),
+        this.contract.balanceOf(this.myAddress),
+        this.provider.getBalance(this.myAddress),
+        this.contract.minerReputation(this.myAddress),
+        this.contract.totalEarned(this.myAddress),
+      ]);
+      this.stats.totalMinted   = minted.toString();
+      this.stats.jobsCompleted = done.toString();
+      this.stats.minerCount    = minerCount.toString();
+      this.myInft          = bal.toString();
+      this.myEth           = ethers.formatEther(eth);
+      this.myRep           = rep.toString();
+      this.myTotalEarned   = earned.toString();
+      try {
+        const creatorEarned = await this.contract.totalCreatorEarned(this.myAddress);
+        this.myCreatorEarned = creatorEarned ? creatorEarned.toString() : "0";
+      } catch { this.myCreatorEarned = "0"; }
+
+      // Check if this address is a registered miner
+      try {
+        const profile = await this.contract.getMinerProfile(this.myAddress);
+        this.isMinerRegistered = profile[2]; // active
+      } catch { this.isMinerRegistered = false; }
+    },
+
+    async loadModels() {
+      const count = parseInt((await this.contract.getModelCount()).toString());
+      const ms = [];
+      for (let i = 0; i < count; i++) {
+        try {
+          const id = await this.contract.modelList(i);
+          const info = await this.contract.getModelInfo(id);
+          ms.push({ id, creator: info[0], royaltyBps: parseInt(info[1].toString()), exists: info[2] });
+        } catch { continue; }
+      }
+      this.models = ms;
+    },
+
+    async loadJobs() {
+      const nextId = parseInt((await this.contract.nextJobId()).toString());
+      const start  = Math.max(0, nextId - 50);
+
+      const fetched = await Promise.all(
+        Array.from({ length: nextId - start }, (_, i) => this.fetchJob(start + i))
+      );
+      this.jobs = fetched.filter(Boolean);
+    },
+
+    async fetchJob(id) {
+      try {
+        const raw = await this.contract.getJob(id);
+        const status = parseInt(raw[2].toString());
+        const postedAt = parseInt(raw[4].toString());
+
+        let prompt = "", output = "";
+        try {
+          const filter = this.contract.filters.JobPosted(id);
+          const events = await this.contract.queryFilter(filter, -10000);
+          if (events[0]) prompt = ethers.toUtf8String(events[0].args.encryptedInput).slice(0, 200);
+        } catch {}
+
+        if (status >= 2) {
+          try {
+            const filter = this.contract.filters.ResultSubmitted(id);
+            const events = await this.contract.queryFilter(filter, -10000);
+            if (events[0]) output = ethers.toUtf8String(events[0].args.encryptedOutput).slice(0, 2000);
+          } catch {}
+        }
+
+        return {
+          id,
+          requester:       raw[0],
+          maxOutputTokens: parseInt(raw[1].toString()),
+          status,
+          miner:           raw[3],
+          postedAt,
+          challenger:      raw[5],
+          submittedAt:     parseInt(raw[6].toString()),
+          modelId:         raw[9],
+          prompt,
+          output,
+          isRequester: raw[0].toLowerCase() === this.myAddress.toLowerCase(),
+          isMiner:     raw[3].toLowerCase() === this.myAddress.toLowerCase(),
+          expired:     Date.now() / 1000 > postedAt + 300,
+        };
+      } catch { return null; }
+    },
+
+    async loadLeaderboard() {
+      try {
+        const count = Math.min(20, parseInt((await this.contract.getRegisteredMinerCount()).toString()));
+        if (!count) return;
+        const miners = await Promise.all(
+          Array.from({ length: count }, (_, i) => this.contract.registeredMiners(i))
+        );
+        const profiles = await Promise.all(miners.map(async addr => ({
+          address: addr,
+          rep:     parseInt((await this.contract.minerReputation(addr)).toString()),
+          earned:  (await this.contract.totalEarned(addr)).toString(),
+          isMe:    addr.toLowerCase() === this.myAddress.toLowerCase(),
+        })));
+        this.leaderboard = profiles
+          .sort((a, b) => parseFloat(ethers.formatEther(b.earned)) - parseFloat(ethers.formatEther(a.earned)))
+          .slice(0, 10);
+      } catch {}
+    },
+
+    // ── Requester Actions ──────────────────────────────────────────
+    async postJob() {
+      if (!this.form.model)  { this.notify("Select a model", true); return; }
+      if (!this.form.prompt) { this.notify("Enter a prompt", true); return; }
+      this.posting = true; this.postMsg = ""; this.postError = false;
+
+      let enc = ethers.toUtf8Bytes(this.form.prompt);
+
+      // If encryption enabled, fetch miner RSA key and encrypt
+      if (this.form.encrypt) {
+        try {
+          const miners = await this.contract.minersForModel(this.form.model, 1);
+          if (miners.length > 0 && miners[0] !== ZERO_ADDR) {
+            const profile = await this.contract.getMinerProfile(miners[0]);
+            const pubKeyBytes = profile[1]; // pubKey
+            if (pubKeyBytes && pubKeyBytes.length > 0) {
+              // Simple XOR encryption for MVP (replace with proper RSA in production)
+              const pubStr = ethers.hexlify(pubKeyBytes);
+              this.postMsg = "Encrypting prompt for miner " + miners[0].slice(0, 8) + "…";
+              // Use the public key bytes for XOR-based encryption (simplified MVP encryption)
+              enc = this._simpleEncrypt(enc, pubKeyBytes);
+            }
+          }
+        } catch (e) {
+          this.notify("Could not encrypt — posting as plaintext: " + e.message, true);
+        }
+      }
+
+      try {
+        const tx = await this.contract.postJob(
+          this.form.model, enc, parseInt(this.form.maxTokens),
+          { value: ethers.parseEther("0.001") }
+        );
+        this.postMsg = "⏳ Waiting for confirmation…";
+        const receipt = await tx.wait();
+        let jobId = "?";
+        for (const log of receipt.logs) {
+          try {
+            const evt = this.contract.interface.parseLog(log);
+            if (evt.name === "JobPosted") { jobId = evt.args.jobId.toString(); break; }
+          } catch {}
+        }
+        this.postMsg = `✅ Job #${jobId} posted! Waiting for a miner…`;
+        this.notify(`Job #${jobId} posted`, false);
+        this.form.prompt = "";
+        await this.refresh();
+      } catch (e) {
+        this.postMsg = e.reason || e.message?.slice(0, 100) || "Unknown error";
+        this.postError = true;
+        this.notify("Post failed: " + this.postMsg, true);
+      } finally { this.posting = false; }
+    },
+
+    // Simple XOR encryption using pub key bytes
+    _simpleEncrypt(data, keyBytes) {
+      const result = new Uint8Array(data.length);
+      for (let i = 0; i < data.length; i++) {
+        result[i] = data[i] ^ keyBytes[i % keyBytes.length];
+      }
+      return result;
+    },
+
+    async reclaimJob(jobId) {
+      try {
+        const tx = await this.contract.reclaimExpiredJob(jobId);
+        await tx.wait();
+        this.notify(`Job #${jobId} reclaimed — ETH returned`, false);
+        await this.refresh();
+      } catch (e) { this.notify("Reclaim failed: " + (e.reason || e.message), true); }
+    },
+
+    // ── Miner Actions ──────────────────────────────────────────────
+    async registerMiner() {
+      if (!this.minerForm.models) { this.notify("Enter at least one model", true); return; }
+      this.minerPosting = true; this.minerMsg = ""; this.minerError = false;
+      try {
+        const models = this.minerForm.models.split(",").map(s => s.trim()).filter(Boolean);
+        let pubKey = "0x";
+        if (this.minerForm.pubKey) {
+          pubKey = this.minerForm.pubKey.startsWith("0x") ? this.minerForm.pubKey : "0x" + this.minerForm.pubKey;
+        }
+        const tx = await this.contract.registerMiner(models, ethers.toUtf8Bytes(pubKey));
+        this.minerMsg = "⏳ Waiting for confirmation…";
+        await tx.wait();
+        this.minerMsg = `✅ Registered as miner with ${models.length} model(s)!`;
+        this.notify("Miner registered! Run miner/miner.py to start mining.", false);
+        this.isMinerRegistered = true;
+        await this.refresh();
+      } catch (e) {
+        this.minerMsg = e.reason || e.message?.slice(0, 100) || "Unknown error";
+        this.minerError = true;
+        this.notify("Registration failed: " + this.minerMsg, true);
+      } finally { this.minerPosting = false; }
+    },
+
+    async deactivateMiner() {
+      if (!confirm("Deactivate as miner? You can re-register later.")) return;
+      try {
+        const tx = await this.contract.deactivateMiner();
+        await tx.wait();
+        this.isMinerRegistered = false;
+        this.notify("Miner deactivated", false);
+      } catch (e) { this.notify("Deactivate failed: " + (e.reason || e.message), true); }
+    },
+
+    async claimJob(jobId) {
+      if (!confirm(`Claim job #${jobId}? This posts a 0.005 ETH bond.`)) return;
+      try {
+        const tx = await this.contract.claimJob(jobId, { value: ethers.parseEther("0.005") });
+        await tx.wait();
+        this.notify(`Job #${jobId} claimed — please submit result`, false);
+        this.role = "miner";
+        await this.refresh();
+      } catch (e) { this.notify("Claim failed: " + (e.reason || e.message), true); }
+    },
+
+    async submitResult(jobId) {
+      const output = this.submitOutputs[jobId];
+      if (!output) { this.notify("Enter output text first", true); return; }
+      try {
+        const enc = ethers.toUtf8Bytes(output);
+        const tx = await this.contract.submitResult(jobId, enc);
+        await tx.wait();
+        this.notify(`Result for job #${jobId} submitted! Wait for challenge window.`, false);
+        this.submitOutputs[jobId] = "";
+        await this.refresh();
+      } catch (e) { this.notify("Submit failed: " + (e.reason || e.message), true); }
+    },
+
+    async finalizeJob(jobId) {
+      try {
+        const tx = await this.contract.finalizeJob(jobId);
+        await tx.wait();
+        this.notify(`Job #${jobId} finalized — INFT minted! 🎉`, false);
+        await this.refresh();
+      } catch (e) { this.notify("Finalize failed: " + (e.reason || e.message), true); }
+    },
+
+    async challengeJob(jobId) {
+      if (!confirm(`Challenge job #${jobId}? This posts a 0.005 ETH bond.`)) return;
+      try {
+        const tx = await this.contract.challengeResult(jobId, { value: ethers.parseEther("0.005") });
+        await tx.wait();
+        this.notify(`Job #${jobId} challenged — awaiting arbitration`, false);
+        await this.refresh();
+      } catch (e) { this.notify("Challenge failed: " + (e.reason || e.message), true); }
+    },
+
+    // ── Creator Actions ────────────────────────────────────────────
+    async registerModel() {
+      if (!this.regForm.modelId) { this.notify("Enter a model ID", true); return; }
+      this.regPosting = true; this.regMsg = ""; this.regError = false;
+      try {
+        const tx = await this.contract.registerModel(
+          this.regForm.modelId, parseInt(this.regForm.royalty)
+        );
+        await tx.wait();
+        const royaltyPct = this.regForm.royalty / 100;
+        this.regMsg = `✅ "${this.regForm.modelId}" registered with ${royaltyPct}% royalty!`;
+        this.notify("Model registered!", false);
+        this.regForm.modelId = "";
+        await this.refresh();
+      } catch (e) {
+        this.regMsg = e.reason || e.message?.slice(0, 100) || "Unknown error";
+        this.regError = true;
+        this.notify("Registration failed: " + this.regMsg, true);
+      } finally { this.regPosting = false; }
+    },
+
+    // ── Misc ───────────────────────────────────────────────────────
+    showJobDetail(job) {
+      this.detailModal = { show: true, job };
+    },
+
+    selectModel(m) {
+      this.form.model = m;
+      this.role = "requester";
+      document.querySelector("textarea")?.focus();
+    },
+
+    // ── Helpers ────────────────────────────────────────────────────
+    fmt(bn) {
+      if (!bn) return "0";
+      try { return parseFloat(ethers.formatEther(bn)).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+      catch { return "0"; }
+    },
+    shortAddr: a => a ? a.slice(0, 6) + "…" + a.slice(-4) : "—",
+    statusLabel: s => STATUS_LABELS[s] ?? "Unknown",
+    statusKey:   s => STATUS_KEYS[s]   ?? "expired",
+    tabCount(key) {
+      if (key === "all")       return this.jobs.length;
+      if (key === "open")      return this.jobs.filter(j => j.status === 0).length;
+      if (key === "claimed")   return this.jobs.filter(j => j.status === 1).length;
+      if (key === "submitted") return this.jobs.filter(j => j.status === 2).length;
+      if (key === "complete")  return this.jobs.filter(j => j.status === 3).length;
+      if (key === "mine")      return this.jobs.filter(j => j.isRequester || j.isMiner).length;
+      return 0;
+    },
+    jobReward(t) {
+      if (t < 512)  return "10";
+      if (t < 2048) return "25";
+      return "50";
+    },
+    timeAgo(ts) {
+      if (!ts) return "";
+      const s = Math.floor(Date.now() / 1000 - ts);
+      if (s < 60)   return s + "s ago";
+      if (s < 3600) return Math.floor(s / 60) + "m ago";
+      return Math.floor(s / 3600) + "h ago";
+    },
+    notify(msg, error) {
+      this.toast = { show: true, msg, error };
+      setTimeout(() => this.toast.show = false, 4000);
+    },
+
+    // ── Emission chart ─────────────────────────────────────────────
+    buildEmissionChart() {
+      setTimeout(() => {
+        const ctx = document.getElementById("emissionChart");
+        if (!ctx) return;
+        const labels = [], data = [];
+        let reward = 50, total = 0;
+        for (let era = 0; era <= 10; era++) {
+          labels.push(`Era ${era + 1}`);
+          data.push(reward * 1_000_000 / 1e18);
+          total += reward * 1_000_000 / 1e18;
+          reward = reward / 2;
+        }
+        new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [
+              { label: "INFT per era (M)", data, backgroundColor: "#7c6af733", borderColor: "#7c6af7", borderWidth: 2, borderRadius: 4 },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { grid: { color: "#2a2d36" }, ticks: { color: "#6b7280", font: { family: "JetBrains Mono", size: 9 } } },
+              y: { grid: { color: "#2a2d36" }, ticks: { color: "#6b7280", font: { family: "JetBrains Mono", size: 9 } } },
+            },
+          },
+        });
+      }, 100);
+    },
+  };
+}
+</script>
+</body>
+</html>

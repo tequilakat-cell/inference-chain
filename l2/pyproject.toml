@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name            = "inference-chain"
+version         = "0.1.0"
+description     = "InferenceChain L2 — purpose-built rollup for parallelised AI inference"
+requires-python = ">=3.11"
+
+dependencies = [
+  "web3>=7.0.0",
+  "eth-account>=0.13.0",
+  "aiohttp>=3.10.0",
+  "websockets>=13.0",
+  "prometheus-client>=0.21.0",
+  "cryptography>=43.0.0",
+  "python-dotenv>=1.0.0",
+  "requests>=2.32.0",
+  "pycryptodome>=3.20.0",   # keccak256
+]
+
+[project.optional-dependencies]
+miner = [
+  "llama-cpp-python",
+]
+
+[project.scripts]
+ic-sequencer = "chain.sequencer:main"
+ic-miner     = "miner.l2_miner:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["chain*", "miner*", "bridge*", "sdk*"]
+
+[tool.setuptools.package-dir]
+# Allow importing from the L1 inference project
+"" = "."

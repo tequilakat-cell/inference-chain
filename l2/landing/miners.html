@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>InferenceChain — Miner Diagnostics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin></script>
+<style>
+:root {
+  --bg:       #0b0a09;
+  --bg-2:     #111009;
+  --bg-3:     #181612;
+  --bg-4:     #201e19;
+  --border:   #252218;
+  --border-2: #302c22;
+  --ink:      #f0ece5;
+  --ink-2:    #b0a898;
+  --ink-3:    #6a6055;
+  --accent:   #d4712a;
+  --accent-2: #e8894a;
+  --good:     #4ab87a;
+  --warn:     #e8aa4a;
+  --bad:      #e05a45;
+  --blue:     #5a9cf0;
+  --mono:     "JetBrains Mono", monospace;
+  --sans:     "Inter", -apple-system, sans-serif;
+  --serif:    "Instrument Serif", serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body,#root{min-height:100%;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased;}
+a{color:var(--accent);text-decoration:none;}a:hover{color:var(--accent-2);}
+code{font-family:var(--mono);font-size:.9em;}
+
+/* ── Nav ─────────────────────────────────────────────────── */
+.nav{background:var(--bg-2);border-bottom:1px solid var(--border);
+     position:sticky;top:0;z-index:50;padding:0 24px;}
+.nav-inner{max-width:1280px;margin:0 auto;height:56px;
+           display:flex;align-items:center;gap:0;}
+.brand{font-family:var(--serif);font-size:20px;letter-spacing:-.01em;
+       display:flex;align-items:center;gap:10px;margin-right:32px;color:var(--ink);}
+.diamond{width:12px;height:12px;background:var(--accent);transform:rotate(45deg);flex-shrink:0;}
+.nav-tag{font-family:var(--mono);font-size:9px;color:var(--accent);
+         background:rgba(212,113,42,.12);border:1px solid rgba(212,113,42,.3);
+         padding:2px 7px;border-radius:3px;letter-spacing:.1em;}
+.nav-links{display:flex;gap:20px;margin-left:auto;}
+.nav-links a{font-size:13px;color:var(--ink-2);font-weight:500;}
+.nav-links a:hover{color:var(--accent);}
+.nav-links a.active{color:var(--accent);}
+
+/* ── Layout ──────────────────────────────────────────────── */
+.page{max-width:1280px;margin:0 auto;padding:28px 24px 60px;}
+
+/* ── Section headers ─────────────────────────────────────── */
+.section-head{display:flex;align-items:center;justify-content:space-between;
+              margin-bottom:14px;margin-top:32px;}
+.section-head:first-child{margin-top:0;}
+.section-title{font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+               text-transform:uppercase;color:var(--ink-3);}
+.section-action{font-family:var(--mono);font-size:10px;color:var(--accent);
+                cursor:pointer;background:none;border:none;padding:0;}
+.section-action:hover{color:var(--accent-2);}
+
+/* ── Refresh bar ─────────────────────────────────────────── */
+.refresh-bar{display:flex;align-items:center;gap:12px;margin-bottom:24px;
+             padding:10px 16px;background:var(--bg-2);border:1px solid var(--border);}
+.refresh-label{font-family:var(--mono);font-size:10px;color:var(--ink-3);}
+.refresh-btn{background:var(--bg-3);border:1px solid var(--border);color:var(--ink-2);
+             font-family:var(--mono);font-size:10px;padding:4px 12px;cursor:pointer;
+             border-radius:3px;}
+.refresh-btn:hover{border-color:var(--accent);color:var(--accent);}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--good);
+          animation:pulse 2s infinite;flex-shrink:0;}
+.live-dot.bad{background:var(--bad);animation:none;}
+@keyframes pulse{50%{opacity:.3;}}
+.ml-auto{margin-left:auto;}
+
+/* ── Diagnostic grid ─────────────────────────────────────── */
+.diag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;
+           margin-bottom:28px;}
+.diag-card{padding:14px 16px;background:var(--bg-2);border:1px solid var(--border);
+           display:flex;align-items:flex-start;gap:12px;}
+.diag-icon{font-size:18px;flex-shrink:0;margin-top:1px;}
+.diag-body{}
+.diag-label{font-family:var(--mono);font-size:10px;color:var(--ink-3);
+            letter-spacing:.06em;margin-bottom:3px;}
+.diag-value{font-size:13px;font-weight:600;color:var(--ink);}
+.diag-sub  {font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:3px;
+            line-height:1.5;}
+.diag-ok   {color:var(--good);}
+.diag-warn {color:var(--warn);}
+.diag-bad  {color:var(--bad);}
+
+/* ── Miner cards ─────────────────────────────────────────── */
+.miner-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;
+            margin-bottom:28px;}
+.miner-card{background:var(--bg-2);border:1px solid var(--border);overflow:hidden;}
+.miner-card.online {border-color:rgba(74,184,122,.3);}
+.miner-card.offline{border-color:rgba(224,90,69,.3);}
+.miner-card.unknown{border-color:var(--border);}
+.mc-head{padding:14px 16px;border-bottom:1px solid var(--border);
+         display:flex;align-items:center;gap:10px;}
+.mc-status{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.mc-status.online {background:var(--good);box-shadow:0 0 6px var(--good);}
+.mc-status.offline{background:var(--bad);}
+.mc-status.unknown{background:var(--ink-3);}
+.mc-status.checking{background:var(--warn);animation:pulse .6s infinite;}
+.mc-addr{font-family:var(--mono);font-size:12px;color:var(--ink);flex:1;min-width:0;
+         overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mc-badge{font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:3px;
+          font-weight:600;flex-shrink:0;}
+.badge-cpu   {background:rgba(78,120,200,.18);color:#7aaaf8;}
+.badge-cuda  {background:rgba(100,200,100,.18);color:#7ae87a;}
+.badge-mlx   {background:rgba(200,100,200,.18);color:#e87ae8;}
+.badge-vulkan{background:rgba(200,150,50,.18);color:#f8c47a;}
+.badge-llama {background:rgba(212,113,42,.18);color:var(--accent-2);}
+.mc-body{padding:14px 16px;}
+.mc-kv{display:grid;grid-template-columns:120px 1fr;gap:4px 8px;margin-bottom:12px;}
+.mc-key{font-family:var(--mono);font-size:10px;color:var(--ink-3);align-self:center;}
+.mc-val{font-family:var(--mono);font-size:11px;color:var(--ink-2);}
+.mc-val.good{color:var(--good);}
+.mc-val.warn{color:var(--warn);}
+.mc-val.bad {color:var(--bad);}
+.rep-bar{height:4px;background:var(--bg-4);border-radius:2px;margin:2px 0 2px;}
+.rep-fill{height:100%;border-radius:2px;background:var(--accent);transition:width .4s ease;}
+.mc-models{margin-top:8px;}
+.model-tag{display:inline-block;font-family:var(--mono);font-size:9px;
+           padding:2px 7px;border-radius:3px;border:1px solid var(--border);
+           color:var(--ink-3);margin:2px 3px 2px 0;}
+.model-tag.registered{border-color:rgba(74,184,122,.4);color:var(--good);}
+.mc-health-url{margin-top:12px;display:flex;gap:6px;align-items:center;}
+.url-input{flex:1;background:var(--bg-3);border:1px solid var(--border);
+           color:var(--ink-2);font-family:var(--mono);font-size:10px;
+           padding:5px 8px;border-radius:3px;}
+.url-input:focus{outline:none;border-color:var(--accent);}
+.url-btn{background:var(--bg-3);border:1px solid var(--border);color:var(--ink-3);
+         font-family:var(--mono);font-size:10px;padding:5px 10px;cursor:pointer;
+         border-radius:3px;white-space:nowrap;}
+.url-btn:hover{border-color:var(--accent);color:var(--accent);}
+.health-raw{margin-top:8px;padding:8px;background:var(--bg-3);border:1px solid var(--border);
+            font-family:var(--mono);font-size:9px;color:var(--ink-3);
+            border-left:3px solid var(--border-2);line-height:1.6;white-space:pre-wrap;
+            word-break:break-all;}
+.health-raw.ok  {border-left-color:var(--good);}
+.health-raw.err {border-left-color:var(--bad);}
+
+/* ── Shard distribution table ────────────────────────────── */
+.panel{background:var(--bg-2);border:1px solid var(--border);overflow:hidden;}
+.panel-head{display:flex;justify-content:space-between;align-items:center;
+            padding:12px 16px;border-bottom:1px solid var(--border);}
+.panel-title{font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+             text-transform:uppercase;color:var(--ink-3);}
+.data-table{width:100%;border-collapse:collapse;}
+.data-table th{font-family:var(--mono);font-size:9px;letter-spacing:.12em;
+               text-transform:uppercase;color:var(--ink-3);
+               padding:9px 14px;border-bottom:1px solid var(--border);
+               text-align:left;font-weight:500;}
+.data-table td{padding:10px 14px;border-bottom:1px solid var(--border);
+               font-size:12px;vertical-align:middle;}
+.data-table tr:last-child td{border-bottom:0;}
+.data-table tr:hover td{background:var(--bg-3);}
+.hash{font-family:var(--mono);font-size:11px;}
+
+/* ── Badges ──────────────────────────────────────────────── */
+.badge{display:inline-flex;align-items:center;gap:4px;
+       font-family:var(--mono);font-size:9px;padding:2px 6px;
+       border-radius:3px;font-weight:600;letter-spacing:.04em;}
+.badge-complete{background:rgba(74,184,122,.12);color:var(--good);}
+.badge-pending {background:rgba(232,170,74,.12);color:var(--warn);}
+.badge-partial {background:rgba(90,156,240,.12);color:var(--blue);}
+.badge-failed  {background:rgba(224,90,69,.12);color:var(--bad);}
+
+/* ── Shard pills ─────────────────────────────────────────── */
+.shard-pills{display:flex;gap:4px;flex-wrap:wrap;}
+.shard-pill{font-family:var(--mono);font-size:9px;padding:2px 6px;
+            border-radius:10px;border:1px solid var(--border);color:var(--ink-3);
+            white-space:nowrap;}
+.shard-pill.khadas{border-color:rgba(212,113,42,.5);color:var(--accent-2);}
+.shard-pill.mac   {border-color:rgba(90,156,240,.5);color:var(--blue);}
+.shard-pill.other {border-color:var(--border-2);color:var(--ink-2);}
+.shard-pill.unset {border-color:var(--border);color:var(--ink-3);}
+
+/* ── P2P peers ───────────────────────────────────────────── */
+.peers-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+            gap:8px;padding:14px 16px;}
+.peer-item{font-family:var(--mono);font-size:10px;color:var(--ink-2);
+           padding:6px 10px;background:var(--bg-3);border:1px solid var(--border);
+           border-radius:3px;display:flex;align-items:center;gap:7px;}
+.peer-dot{width:5px;height:5px;border-radius:50%;background:var(--good);flex-shrink:0;}
+
+/* ── Add miner modal ─────────────────────────────────────── */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);
+          z-index:100;display:flex;align-items:center;justify-content:center;}
+.modal{background:var(--bg-2);border:1px solid var(--border-2);border-radius:10px;
+       padding:24px;width:480px;max-width:90vw;}
+.modal h2{font-family:var(--serif);font-size:22px;margin-bottom:16px;}
+.form-field{margin-bottom:14px;}
+.form-label{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+            color:var(--ink-3);display:block;margin-bottom:6px;}
+.form-input{width:100%;background:var(--bg-3);border:1px solid var(--border);
+            color:var(--ink);font-family:var(--mono);font-size:12px;
+            padding:9px 12px;border-radius:6px;}
+.form-input:focus{outline:none;border-color:var(--accent);}
+.form-hint{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:4px;}
+.modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;}
+.btn-primary{background:var(--accent);color:#fff;border:none;border-radius:6px;
+             padding:8px 18px;font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;}
+.btn-ghost{background:none;border:1px solid var(--border);color:var(--ink-2);
+           border-radius:6px;padding:8px 18px;font-family:var(--sans);font-size:13px;cursor:pointer;}
+.btn-ghost:hover{border-color:var(--border-2);}
+
+/* ── Empty / loading ─────────────────────────────────────── */
+.empty{padding:32px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--ink-3);}
+.loading-dot::after{content:"…";animation:ldots 1.5s steps(4,end) infinite;}
+@keyframes ldots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+
+@media(max-width:760px){
+  .miner-grid{grid-template-columns:1fr;}
+  .diag-grid{grid-template-columns:1fr 1fr;}
+}
+</style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" src="miners.jsx"></script>
+</body>
+</html>

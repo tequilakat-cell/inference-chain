@@ -1,0 +1,28 @@
+{
+  "name": "inft-monorepo",
+  "version": "0.1.0",
+  "description": "INFT monorepo — L1 InferenceToken + L2 InferenceChain",
+  "private": true,
+  "workspaces": [
+    "l1",
+    "l2"
+  ],
+  "scripts": {
+    "compile":        "npm run compile --workspaces",
+    "compile:l1":     "npm run compile --workspace=l1",
+    "compile:l2":     "npm run compile --workspace=l2",
+    "test:contracts": "npm run test --workspaces",
+    "deploy:l1":      "npm run deploy:base-sepolia --workspace=l1",
+    "deploy:l2":      "npm run deploy:sepolia --workspace=l2",
+    "node:l1":        "npm run node --workspace=l1",
+    "node:l2":        "npm run node --workspace=l2"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.2"
+  }
+}

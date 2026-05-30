@@ -1,0 +1,5 @@
+comment = 'Distributed nested JSONB + time-series for PostgreSQL'
+default_version = '1.0'
+module_pathname = '$libdir/pg_nest'
+relocatable = false
+schema = pg_nest

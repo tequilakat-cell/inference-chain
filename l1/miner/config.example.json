@@ -1,0 +1,24 @@
+{
+  "_comment": "Prefer environment variables (PRIVATE_KEY, RPC_URL, etc.) over this file. Never commit real keys.",
+
+  "private_key":      "0xYOUR_PRIVATE_KEY_HERE",
+  "rpc_url":          "https://sepolia.base.org",
+  "contract_address": "0xDEPLOYED_CONTRACT_ADDRESS",
+  "abi":              "../deployment.json",
+
+  "models": {
+    "mistralai/Mistral-7B-Instruct-v0.3": "/models/mistral-7b-instruct-v0.3.Q4_K_M.gguf",
+    "meta-llama/Llama-3.1-8B-Instruct":   "/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+  },
+
+  "key_dir":            "~/.inference-miner/keys",
+  "max_jobs":           3,
+  "challenge_wait":     602,
+  "health_port":        9090,
+  "log_level":          "INFO",
+  "encryption_enabled": false,
+
+  "backend": "",
+
+  "_backend_notes": "GPU backend auto-detects: cuda (NVIDIA), mlx (Apple Silicon), vulkan (AMD/Intel/NVIDIA). Set 'backend' to force one, or leave empty for auto-detect."
+}

@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+
+# Node / Hardhat
+node_modules/
+l1/artifacts/
+l1/cache/
+l2/artifacts/
+l2/cache/
+
+# Data / keys
+*.db
+*.snap.json
+data/chain.snap.json
+l2/data/chain.snap.json
+**/keys/*.pem
+**/keys/*.der
+**/.inference-miner/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target":      "ES2022",
+    "module":      "Node16",
+    "moduleResolution": "Node16",
+    "outDir":      "dist",
+    "rootDir":     "src",
+    "strict":      false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata":  true,
+    "declaration": true,
+    "sourceMap":   true
+  },
+  "include": ["src/**/*"]
+}

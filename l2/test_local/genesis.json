@@ -1,0 +1,41 @@
+{
+  "chain_id": 2026,
+  "chain_name": "InferenceChain",
+  "block_time_ms": 1000,
+  "state_root_interval": 100,
+  "fraud_proof_window_s": 604800,
+  "shard_offer_timeout_ms": 300000,
+  "shard_result_timeout_ms": 300000,
+  "assembly_timeout_ms": 360000,
+  "max_shards_per_job": 8,
+  "max_concurrent_shards": 4,
+  "min_stake_inft": 100,
+  "slash_pct_offer": 10,
+  "slash_pct_result": 30,
+  "sequencer_address": "0xf44ec1E180534bf538cc19fe8361EEFDAD1ad423",
+  "l1_chain_id": 11155111,
+  "l1_inft_address": "0x0000000000000000000000000000000000000000",
+  "rollup_l1_address": "",
+  "bridge_l1_address": "",
+  "initial_validators": [
+    {
+      "address": "0x80fc2869F5d78dC89b515f9c156d918542117343",
+      "stake_inft": 1000
+    },
+    {
+      "address": "0x8fd379246834eac74B8419FfdA202CF8051F7A03",
+      "stake_inft": 500
+    }
+  ],
+  "initial_balances": [
+    {
+      "address": "0x80fc2869F5d78dC89b515f9c156d918542117343",
+      "balance_inft": 10000
+    },
+    {
+      "address": "0x8fd379246834eac74B8419FfdA202CF8051F7A03",
+      "balance_inft": 2000
+    }
+  ],
+  "bootstrap_peers": []
+}

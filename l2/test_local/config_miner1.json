@@ -1,0 +1,23 @@
+{
+  "private_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "models": {
+    "Qwen/Qwen2.5-0.5B-Instruct": "~/INFT/models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+  },
+  "l2_rpc_url": "http://104.197.6.1/rpc",
+  "l2_chain_id": 2026,
+  "bootstrap_peers": [
+    "ws://104.197.6.1:9000"
+  ],
+  "p2p_host": "0.0.0.0",
+  "p2p_port": 19001,
+  "health_port": 19091,
+  "max_concurrent_shards": 4,
+  "key_dir": "~/.inference-miner/keys-miner1",
+  "log_level": "INFO",
+  "backend": "metal",
+  "encryption_enabled": false,
+  "min_stake_inft": 100,
+  "rpc_port": 50052,
+  "rpc_advertise_host": "192.168.198.224",
+  "pg_dsn": "postgresql://localhost/inft_memory"
+}

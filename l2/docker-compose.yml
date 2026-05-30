@@ -1,0 +1,117 @@
+version: "3.9"
+
+# ── InferenceChain L2 full-stack
+# Required environment variables (.env or shell):
+#   SEQUENCER_PRIVATE_KEY   Private key for the L2 sequencer
+#   L1_RPC_URL              Sepolia JSON-RPC (Alchemy recommended)
+#   L2_ROLLUP_ADDRESS       Deployed InferenceChainRollup on Sepolia
+#   L2_BRIDGE_ADDRESS       Deployed InferenceChainBridge on Sepolia
+#   L1_INFT_ADDRESS         Deployed InferenceToken on Sepolia (0x0C6EFB51...)
+#   MINER_PRIVATE_KEY       Private key for the L2 miner (can equal SEQUENCER_PRIVATE_KEY)
+#   MODELS_DIR              Host path containing GGUF model files
+
+x-l2-env: &l2-env
+  SEQUENCER_PRIVATE_KEY: ${SEQUENCER_PRIVATE_KEY}
+  L1_RPC_URL:            ${L1_RPC_URL}
+  L2_ROLLUP_ADDRESS:     ${L2_ROLLUP_ADDRESS}
+  L2_BRIDGE_ADDRESS:     ${L2_BRIDGE_ADDRESS}
+  L1_INFT_ADDRESS:       ${L1_INFT_ADDRESS:-0x0C6EFB51aed8A830AFaABe74D4C721180aB285DB}
+  L2_RPC_URL:            http://sequencer:8545
+
+services:
+
+  # ── L2 sequencer (block producer) ─────────────────────────────────────────
+  sequencer:
+    build:
+      context: .
+      dockerfile: Dockerfile.sequencer
+    restart: unless-stopped
+    environment:
+      <<: *l2-env
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - sequencer-data:/app/data
+      - ./genesis.json:/app/genesis.json:ro
+      - ./l1_deployment.json:/app/l1_deployment.json:ro
+    ports:
+      - "8545:8545"   # L2 JSON-RPC
+      - "9000:9000"   # P2P gossip
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8545/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ── Bridge watcher (L1→L2 deposit relay) ──────────────────────────────────
+  bridge-watcher:
+    build:
+      context: .
+      dockerfile: Dockerfile.bridge
+    restart: unless-stopped
+    command: python -m bridge.watcher
+    environment:
+      <<: *l2-env
+    volumes:
+      - bridge-data:/app/data
+      - ./l1_deployment.json:/app/l1_deployment.json:ro
+    depends_on:
+      sequencer:
+        condition: service_healthy
+
+  # ── Bridge relayer (L2→L1 withdrawal finalisation) ────────────────────────
+  bridge-relayer:
+    build:
+      context: .
+      dockerfile: Dockerfile.bridge
+    restart: unless-stopped
+    command: python -m bridge.relayer
+    environment:
+      <<: *l2-env
+    volumes:
+      - bridge-data:/app/data
+      - ./l1_deployment.json:/app/l1_deployment.json:ro
+    depends_on:
+      sequencer:
+        condition: service_healthy
+
+  # ── L2 miner (CPU inference) ───────────────────────────────────────────────
+  miner:
+    build:
+      context: .
+      dockerfile: Dockerfile.miner
+    restart: unless-stopped
+    environment:
+      <<: *l2-env
+      PRIVATE_KEY:            ${MINER_PRIVATE_KEY:-${SEQUENCER_PRIVATE_KEY}}
+      L1_CONTRACT_ADDRESS:    ${L1_INFT_ADDRESS:-0x0C6EFB51aed8A830AFaABe74D4C721180aB285DB}
+      L2_BOOTSTRAP_PEERS:     sequencer:9000
+      MODELS_DIR:             /models
+      BACKEND:                ${BACKEND:-cpu}
+      LOG_LEVEL:              ${LOG_LEVEL:-INFO}
+    volumes:
+      - ${MODELS_DIR:-./models}:/models:ro
+      - miner-keys:/root/.inference-miner
+    ports:
+      - "9001:9001"   # P2P (miner)
+      - "9090:9090"   # metrics
+    depends_on:
+      sequencer:
+        condition: service_healthy
+
+  # ── Prometheus ──────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.54.0
+    restart: unless-stopped
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9091:9090"
+    profiles: ["observability"]
+
+volumes:
+  sequencer-data:
+  bridge-data:
+  miner-keys:
+  prometheus-data:

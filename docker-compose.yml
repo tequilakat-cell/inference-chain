@@ -1,0 +1,221 @@
+version: "3.9"
+
+# ── INFT full-stack — L1 InferenceToken + L2 InferenceChain ──────────────────
+#
+# Required environment variables (.env or shell):
+#   PRIVATE_KEY              L1 wallet private key (0x...)
+#   MINER_PRIVATE_KEY        L1 miner key (defaults to PRIVATE_KEY)
+#   RPC_URL                  L1 JSON-RPC (e.g. https://mainnet.base.org)
+#   CONTRACT_ADDRESS         Deployed InferenceToken address
+#   SEQUENCER_PRIVATE_KEY    L2 sequencer key
+#   L1_RPC_URL               Sepolia JSON-RPC for L2 bridge
+#   L2_ROLLUP_ADDRESS        Deployed InferenceChainRollup on Sepolia
+#   L2_BRIDGE_ADDRESS        Deployed InferenceChainBridge on Sepolia
+#   L1_INFT_ADDRESS          Deployed InferenceToken on Sepolia
+#
+# Optional:
+#   MODELS_DIR               Host path to GGUF model files (default: ./models)
+#   API_PORT                 L1 API port (default: 8000)
+#   FRONTEND_PORT            Frontend port (default: 3000)
+#   BACKEND                  GPU backend for L2 miner (default: cpu)
+#   LOG_LEVEL                Logging level (default: INFO)
+
+x-l1-env: &l1-env
+  RPC_URL:          ${RPC_URL}
+  CONTRACT_ADDRESS: ${CONTRACT_ADDRESS}
+
+x-l2-env: &l2-env
+  SEQUENCER_PRIVATE_KEY: ${SEQUENCER_PRIVATE_KEY}
+  L1_RPC_URL:            ${L1_RPC_URL}
+  L2_ROLLUP_ADDRESS:     ${L2_ROLLUP_ADDRESS}
+  L2_BRIDGE_ADDRESS:     ${L2_BRIDGE_ADDRESS}
+  L1_INFT_ADDRESS:       ${L1_INFT_ADDRESS:-0x0C6EFB51aed8A830AFaABe74D4C721180aB285DB}
+  L2_RPC_URL:            http://sequencer:8545
+
+services:
+
+  # ── L1: OpenAI-compatible inference API ────────────────────────────────────
+  api:
+    build:
+      context: ./l1/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *l1-env
+    volumes:
+      - ./l1/deployment.json:/app/deployment.json:ro
+    ports:
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+
+  # ── L1: Miner node ─────────────────────────────────────────────────────────
+  l1-miner:
+    build:
+      context: ./l1/miner
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *l1-env
+      PRIVATE_KEY:        ${MINER_PRIVATE_KEY:-${PRIVATE_KEY}}
+      MODELS_DIR:         /models
+      MAX_JOBS:           ${MINER_MAX_JOBS:-3}
+      N_GPU_LAYERS:       ${N_GPU_LAYERS:--1}
+      N_CTX:              ${N_CTX:-4096}
+      LOG_LEVEL:          ${LOG_LEVEL:-INFO}
+      ENCRYPTION_ENABLED: "false"
+    volumes:
+      - ${MODELS_DIR:-./models}:/models:ro
+      - l1-miner-keys:/root/.inference-miner
+    ports:
+      - "9090:9090"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+
+  # ── L1: Static frontend ─────────────────────────────────────────────────────
+  frontend:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./l1/frontend:/usr/share/nginx/html:ro
+      - ./l1/deployment.json:/usr/share/nginx/html/deployment.json:ro
+      - ./l1/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ── L2: Sequencer (block producer) ─────────────────────────────────────────
+  sequencer:
+    build:
+      context: ./l2
+      dockerfile: Dockerfile.sequencer
+    restart: unless-stopped
+    environment:
+      <<: *l2-env
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - sequencer-data:/app/data
+      - ./l2/genesis.json:/app/genesis.json:ro
+      - ./l2/l1_deployment.json:/app/l1_deployment.json:ro
+    ports:
+      - "8545:8545"
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8545/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ── L2: Bridge watcher (L1→L2 deposits) ────────────────────────────────────
+  bridge-watcher:
+    build:
+      context: ./l2
+      dockerfile: Dockerfile.bridge
+    restart: unless-stopped
+    command: python -m bridge.watcher
+    environment:
+      <<: *l2-env
+    volumes:
+      - bridge-data:/app/data
+      - ./l2/l1_deployment.json:/app/l1_deployment.json:ro
+    depends_on:
+      sequencer:
+        condition: service_healthy
+
+  # ── L2: Bridge relayer (L2→L1 withdrawals) ─────────────────────────────────
+  bridge-relayer:
+    build:
+      context: ./l2
+      dockerfile: Dockerfile.bridge
+    restart: unless-stopped
+    command: python -m bridge.relayer
+    environment:
+      <<: *l2-env
+    volumes:
+      - bridge-data:/app/data
+      - ./l2/l1_deployment.json:/app/l1_deployment.json:ro
+    depends_on:
+      sequencer:
+        condition: service_healthy
+
+  # ── L2: Miner ───────────────────────────────────────────────────────────────
+  l2-miner:
+    build:
+      context: ./l2
+      dockerfile: Dockerfile.miner
+    restart: unless-stopped
+    environment:
+      <<: *l2-env
+      PRIVATE_KEY:         ${MINER_PRIVATE_KEY:-${SEQUENCER_PRIVATE_KEY}}
+      L1_CONTRACT_ADDRESS: ${L1_INFT_ADDRESS:-0x0C6EFB51aed8A830AFaABe74D4C721180aB285DB}
+      L2_BOOTSTRAP_PEERS:  sequencer:9000
+      MODELS_DIR:          /models
+      BACKEND:             ${BACKEND:-cpu}
+      LOG_LEVEL:           ${LOG_LEVEL:-INFO}
+    volumes:
+      - ${MODELS_DIR:-./models}:/models:ro
+      - l2-miner-keys:/root/.inference-miner
+    ports:
+      - "9001:9001"
+      - "9092:9090"
+    depends_on:
+      sequencer:
+        condition: service_healthy
+
+  # ── Prometheus (optional) ───────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.54.0
+    restart: unless-stopped
+    volumes:
+      - ./l1/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9091:9090"
+    profiles: ["observability"]
+
+  # ── Grafana (optional) ──────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./l1/observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./l1/observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "3001:3000"
+    depends_on: [prometheus]
+    profiles: ["observability"]
+
+volumes:
+  l1-miner-keys:
+  l2-miner-keys:
+  sequencer-data:
+  bridge-data:
+  prometheus-data:
+  grafana-data:

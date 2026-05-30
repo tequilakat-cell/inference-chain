@@ -1,0 +1,19 @@
+{
+  "name": "inference-chain",
+  "version": "0.1.0",
+  "description": "InferenceChain L2 — purpose-built chain for parallelised AI inference",
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy:sepolia": "hardhat run scripts/deploy_l1.js --network sepolia",
+    "deploy:local":   "hardhat run scripts/deploy_l1.js --network localhost",
+    "node":           "hardhat node"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.2"
+  }
+}

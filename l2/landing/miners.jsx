@@ -1,10 +1,14 @@
 const { useState, useEffect, useCallback, useRef } = React;
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const L2_RPC = localStorage.getItem("ic-rpc") ||
-  (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost"
-    ? "http://127.0.0.1:18545"
-    : `${window.location.origin}/rpc`);
+const _host   = window.location.hostname;
+const _origin = window.location.origin;
+const _defaultRpc =
+  (_host === "127.0.0.1" || _host === "localhost") ? "http://127.0.0.1:18545" :
+  (_origin && _origin !== "null")                  ? _origin :
+                                                     "http://192.168.198.48:18545";
+const _savedRpc = localStorage.getItem("ic-rpc");
+const L2_RPC = (_savedRpc && (_origin === "null" || _savedRpc.startsWith(_origin)) ? _savedRpc : null) || _defaultRpc;
 
 const STORAGE_KEY = "ic-miners-extra";
 

@@ -58,6 +58,9 @@ class RPCServer:
         resp.headers["Access-Control-Allow-Origin"]  = "*"
         resp.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
         resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        # Tell browsers to always revalidate static files so stale JSX is never served
+        if request.method == "GET" and request.path not in ("/", "/health"):
+            resp.headers["Cache-Control"] = "no-cache"
         return resp
 
     async def _handle_options(self, req: web.Request) -> web.Response:

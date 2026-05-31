@@ -106,6 +106,53 @@ class ThoughtStore:
             log.debug("thought_store_search_err question=%r err=%s", question[:40], exc)
             return []
 
+    async def recent(
+        self,
+        model_id: str = "",
+        limit: int = 20,
+    ) -> list[ThoughtResult]:
+        """
+        Return the most recently ingested thoughts ordered by recency.
+
+        Unlike search(), this does NOT run a full-text query — an empty BM25
+        query matches no lexemes and returns nothing, so the "recent" view must
+        read inft_thought_log directly. Optional model_id filter. Score is 0.0
+        (recency view is not ranked). Returns [] if the pool is unavailable.
+        """
+        if self._pool is None:
+            return []
+        try:
+            cols = ("id, job_id, miner_address, model_id, "
+                    "question_text, thinking_text, answer_text")
+            if model_id:
+                rows = await self._pool.fetch(
+                    f"SELECT {cols} FROM inft.inft_thought_log "
+                    "WHERE model_id = $1 ORDER BY id DESC LIMIT $2",
+                    model_id, limit,
+                )
+            else:
+                rows = await self._pool.fetch(
+                    f"SELECT {cols} FROM inft.inft_thought_log "
+                    "ORDER BY id DESC LIMIT $1",
+                    limit,
+                )
+            return [
+                ThoughtResult(
+                    id=row["id"],
+                    job_id=row["job_id"] or "",
+                    miner_address=row["miner_address"] or "",
+                    model_id=row["model_id"] or "",
+                    question_text=row["question_text"] or "",
+                    thinking_text=row["thinking_text"] or "",
+                    answer_text=row["answer_text"] or "",
+                    score=0.0,
+                )
+                for row in rows
+            ]
+        except Exception as exc:
+            log.debug("thought_store_recent_err err=%s", exc)
+            return []
+
     async def ingest(
         self,
         job_id: str,

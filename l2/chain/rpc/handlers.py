@@ -1252,8 +1252,9 @@ class RPCHandlers:
 
         if self._thought_store is None:
             return []
-        # Use a broad search term to fetch recent records ranked by recency/relevance
-        results = await self._thought_store.search("", model_id, limit)
+        # Recency view: read the log directly. An empty full-text query matches no
+        # lexemes and returns nothing, so search("") cannot back the "recent" list.
+        results = await self._thought_store.recent(model_id, limit)
         return [
             {
                 "id":            r.id,

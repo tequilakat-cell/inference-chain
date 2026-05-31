@@ -310,6 +310,30 @@ class ShardProtocol:
 
     # ── Phase 0 — Job dispatch ────────────────────────────────────────────────
 
+    def _register_failed_job(self, job_payload: dict, block, reason: str) -> None:
+        """
+        Record a job as FAILED in the protocol's in-flight registry.
+
+        inft_getJob checks the shard protocol's _jobs before falling back to
+        chain state, so registering the job here makes the dashboard show a
+        failed status immediately instead of hanging at VRF assignment.
+        """
+        job_id = job_payload["job_id"]
+        job = JobState(
+            job_id=job_id,
+            requester=job_payload.get("sender", ""),
+            model_id=job_payload.get("model_id", ""),
+            prompt=job_payload.get("prompt", ""),
+            mode=job_payload.get("shard_mode", ""),
+            n_shards=int(job_payload.get("n_shards", 1)),
+            max_tokens=int(job_payload.get("max_tokens", 0)),
+            fee_inft=int(job_payload.get("fee_inft", 0)),
+            block_number=block.header.block_number,
+            status=JobStatus.FAILED,
+        )
+        self._jobs[job_id] = job
+        log.warning("job_failed job=%s reason=%s", job_id[:12], reason)
+
     async def dispatch_job(self, job_payload: dict, block, state) -> None:
         """
         Called by sequencer when a TX_JOB_POST transaction lands in a block.
@@ -366,6 +390,28 @@ class ShardProtocol:
                     job_id, model_id, len(validators),
                 )
 
+        # Benchmark gating (all modes): when benchmark_required is set, only miners
+        # with a valid (non-expired) benchmark score for this model are eligible.
+        # get_miner_score() already returns None for missing or expired scores.
+        # If none qualify, fail the job cleanly instead of dispatching to an
+        # unbenchmarked miner (or silently hanging at VRF assignment).
+        if self._cfg.get("benchmark_required", False):
+            scored = [
+                (addr, stake) for addr, stake in validators
+                if state.get_miner_score(addr, model_id) is not None
+            ]
+            if not scored:
+                self._register_failed_job(
+                    job_payload, block,
+                    f"no benchmarked miners available for model {model_id}",
+                )
+                return
+            log.info(
+                "benchmark_gate job=%s model=%s eligible=%d/%d",
+                job_id, model_id, len(scored), len(validators),
+            )
+            validators = scored
+
         miners = select_miners(job_id, n_shards, block.header.parent_hash, validators)
 
         if not miners:
@@ -383,11 +429,15 @@ class ShardProtocol:
             # Workers must advertise rpc_addr. Coordinator can be any miner.
             worker_capable = [m for m in miners if self._miner_rpc_addrs.get(m.lower())]
             if not worker_capable:
-                raise ValueError(
-                    f"pipeline_parallel requires at least one miner with an active "
-                    f"rpc-server (rpc_addr in heartbeat). {len(miners)} miner(s) online "
-                    f"but none advertise rpc_addr. Start the miner with --rpc-port to enable."
+                # Fail the job cleanly so the dashboard shows an error rather than
+                # hanging at VRF assignment (dispatch_job runs as a fire-and-forget
+                # task, so a raised exception here would be silently swallowed).
+                self._register_failed_job(
+                    job_payload, block,
+                    f"pipeline_parallel requires a miner with an active rpc-server; "
+                    f"{len(miners)} online but none advertise rpc_addr",
                 )
+                return
             else:
                 # Sort by benchmark score (primary) then backend rank (secondary).
                 # Highest-scoring miner becomes coordinator — it does the most work.

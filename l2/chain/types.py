@@ -243,8 +243,14 @@ class JobState:
     def ready_to_assemble(self) -> bool:
         if self.mode == ShardMode.PARALLEL_SAMPLE:
             return len(self.results) >= 1
-        # Pipeline parallel: wait for all shards (workers submit placeholders fast;
-        # coordinator submits after inference completes — assembly triggers on coordinator)
+        if self.mode in (ShardMode.PIPELINE_PARALLEL, ShardMode.TENSOR_PARALLEL):
+            # Only the coordinator (shard 0) produces real output; workers submit
+            # liveness placeholders and their layer compute already happened (via the
+            # RPC session) before the coordinator returns. Assemble the instant the
+            # coordinator result lands instead of blocking on every worker placeholder
+            # round-trip — a lost/late worker placeholder must never stall a job that
+            # already has its answer.
+            return 0 in self.results
         return self.all_shards_in()
 
 

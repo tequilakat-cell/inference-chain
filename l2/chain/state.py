@@ -342,8 +342,14 @@ class StateDB:
             reputation=min(1000, miner_acc.reputation + 1),
         ))
 
-        # Mark job complete if all shards are in
-        if job.all_shards_in() or (job.mode == "parallel_sample" and len(job.results) >= 1):
+        # Mark job complete. parallel_sample completes on the first result;
+        # pipeline/tensor parallel complete on the coordinator (shard 0) commit —
+        # workers only contribute layer compute, not output — so the on-chain status
+        # tracks the protocol's coordinator-triggered assembly instead of waiting on
+        # every worker placeholder commit. All other modes need every shard.
+        coordinator_in = job.mode in ("pipeline_parallel", "tensor_parallel") and 0 in job.results
+        first_sample   = job.mode == "parallel_sample" and len(job.results) >= 1
+        if job.all_shards_in() or first_sample or coordinator_in:
             job.status = JobStatus.COMPLETE
             job.output_hash = output_hash
             # Cascade to any jobs waiting on this one

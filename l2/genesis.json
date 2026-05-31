@@ -12,6 +12,7 @@
   "min_stake_inft": 100,
   "slash_pct_offer": 10,
   "slash_pct_result": 30,
+  "benchmark_required": true,
   "sequencer_address": "0xf44ec1E180534bf538cc19fe8361EEFDAD1ad423",
   "l1_chain_id": 11155111,
   "l1_inft_address": "0x0C6EFB51aed8A830AFaABe74D4C721180aB285DB",

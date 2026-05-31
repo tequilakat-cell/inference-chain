@@ -1088,9 +1088,7 @@ class RPCHandlers:
 
         miner_address = params[0]
         model_id      = params[1]
-        timeout_s     = float(params[2]) if len(params) > 2 else float(
-            self._seq._cfg.get("benchmark_timeout_s", 120.0)
-        )
+        timeout_s     = float(params[2]) if len(params) > 2 else 120.0
 
         if not self._benchmark:
             raise ValueError("BenchmarkRunner not configured on this node")
@@ -1166,7 +1164,7 @@ class RPCHandlers:
             raise ValueError(f"signature verification failed for miner {miner[:10]}")
 
         # Build and queue BENCHMARK_COMMIT tx (sender = miner, marks as self-reported)
-        validity = int(self._seq._cfg.get("benchmark_validity_blocks", 5760))
+        validity = 5760  # ~1 day at 1 block/s
         state    = self._seq.state()
         current_block = state.block_number
 

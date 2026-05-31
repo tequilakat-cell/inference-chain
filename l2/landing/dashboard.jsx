@@ -594,10 +594,14 @@ function App() {
   useEffect(() => { loadChain(); loadMiners(); }, [settings]);
   useEffect(() => { refreshCtxCount(); }, [historyAddr, model]);
 
-  // Auto-update nShards when model changes or miner availability changes
+  // Auto-set nShards only when model first changes, not on every miner refresh
+  const prevModel = useRef(model);
   useEffect(() => {
-    const count = minersByModel[model];
-    if (count > 0) setNShards(count);
+    if (prevModel.current !== model) {
+      prevModel.current = model;
+      const count = minersByModel[model];
+      if (count > 0) setNShards(count);
+    }
   }, [model, minersByModel]);
 
   // Poll active job
@@ -921,7 +925,7 @@ function App() {
                   <span style={{ fontFamily: "var(--mono)", fontSize: 10, alignSelf: "center",
                                  marginLeft: 4, color: mc > 0 ? "var(--ink-2)" : "var(--warn)" }}>
                     {mc > 0
-                      ? `${mc} miner${mc !== 1 ? "s" : ""} · ${mc} shard${mc !== 1 ? "s" : ""} suggested`
+                      ? `${mc} miner${mc !== 1 ? "s" : ""} · ${nShards} shard${nShards !== 1 ? "s" : ""} · ${shardMode.replace("_"," ")}`
                       : "no miners for this model"}
                   </span>
                 );

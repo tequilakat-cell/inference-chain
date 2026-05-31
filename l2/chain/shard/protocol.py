@@ -383,13 +383,11 @@ class ShardProtocol:
             # Workers must advertise rpc_addr. Coordinator can be any miner.
             worker_capable = [m for m in miners if self._miner_rpc_addrs.get(m.lower())]
             if not worker_capable:
-                log.warning(
-                    "pp_fallback job=%s rpc_workers=0/%d — using parallel_sample "
-                    "(at least one miner needs rpc_addr in heartbeat)",
-                    job_id, len(miners),
+                raise ValueError(
+                    f"pipeline_parallel requires at least one miner with an active "
+                    f"rpc-server (rpc_addr in heartbeat). {len(miners)} miner(s) online "
+                    f"but none advertise rpc_addr. Start the miner with --rpc-port to enable."
                 )
-                mode   = ShardMode.PARALLEL_SAMPLE
-                slices = ps_split(prompt, len(miners))
             else:
                 # Sort by benchmark score (primary) then backend rank (secondary).
                 # Highest-scoring miner becomes coordinator — it does the most work.

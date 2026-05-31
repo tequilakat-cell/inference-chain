@@ -390,6 +390,27 @@ class ShardProtocol:
                     job_id, model_id, len(validators),
                 )
 
+        # Liveness gate (all modes): a miner must have sent a P2P heartbeat within
+        # miner_liveness_ms to be eligible. An offline miner must never be assigned a
+        # shard even if it is staked and still holds a non-expired benchmark score —
+        # otherwise VRF routes to a dead validator and the job stalls until timeout.
+        # Fail cleanly when nobody is live rather than dispatching into the void.
+        liveness_ms = int(self._cfg.get("miner_liveness_ms", 300_000))
+        cutoff = int(time.time() * 1000) - liveness_ms
+        live = [
+            (addr, stake) for addr, stake in validators
+            if self._miner_last_seen.get(addr.lower(), 0) >= cutoff
+        ]
+        if not live:
+            self._register_failed_job(
+                job_payload, block,
+                f"no live miners (no heartbeat within {liveness_ms // 1000}s)",
+            )
+            return
+        if len(live) < len(validators):
+            log.info("liveness_gate job=%s live=%d/%d", job_id, len(live), len(validators))
+        validators = live
+
         # Benchmark gating (all modes): when benchmark_required is set, only miners
         # with a valid (non-expired) benchmark score for this model are eligible.
         # get_miner_score() already returns None for missing or expired scores.

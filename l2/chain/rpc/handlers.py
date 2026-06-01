@@ -1399,6 +1399,22 @@ class RPCHandlers:
             source_job_ids=source_job_ids, embedding=query_emb,
             content_hash=bytes.fromhex(chash[2:]),
         )
+        # Distribute the rollup to all miners so every replica's pg_inft has it and
+        # can inject it at inference time (memory "distributed across miners").
+        if self._shards is not None and getattr(self._shards, "_p2p", None) is not None:
+            try:
+                await self._shards._p2p.broadcast("rollup_broadcast", {
+                    "rollup_id":      rollup_id,
+                    "topic":          topic or hits[0].question_text[:80],
+                    "model_id":       infer_model,
+                    "summary":        summary,
+                    "source_count":   len(hits),
+                    "source_job_ids": source_job_ids,
+                    "embedding":      query_emb,
+                })
+            except Exception as exc:
+                log.debug("rollup_broadcast_err id=%s err=%s", rollup_id[:12], exc)
+
         log.info(
             "rollup_created id=%s sources=%d shards=%d summary_chars=%d",
             rollup_id[:12], len(hits), n_shards, len(summary),

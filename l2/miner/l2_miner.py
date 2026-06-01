@@ -343,6 +343,7 @@ class L2Miner:
         self._p2p.subscribe(TOPICS["benchmark_challenges"], self._on_benchmark_challenge)
         self._p2p.subscribe(TOPICS["thought_broadcast"],    self._on_thought_broadcast)
         self._p2p.subscribe(TOPICS["thought_sync"],         self._on_thought_sync)
+        self._p2p.subscribe(TOPICS["rollup_broadcast"],     self._on_rollup_broadcast)
 
         # Start pg_inft registry (non-blocking, degrades gracefully if pg_dsn absent)
         asyncio.create_task(self._registry.start())
@@ -553,6 +554,30 @@ class L2Miner:
             return
         peer_addr = payload.get("miner_address", "peer")
         await handle_thought_broadcast(payload, peer_addr, self._thought_store)
+
+    async def _on_rollup_broadcast(self, payload: dict) -> None:
+        """Receive a consolidated rollup memory from the sequencer; store it locally
+        so this miner can inject it at inference time (distributed memory)."""
+        if self._thought_store is None:
+            return
+        try:
+            await self._thought_store.upsert_rollup(
+                rollup_id=payload.get("rollup_id", ""),
+                topic=payload.get("topic", ""),
+                model_id=payload.get("model_id", ""),
+                summary=payload.get("summary", ""),
+                source_count=int(payload.get("source_count", 0)),
+                source_job_ids=payload.get("source_job_ids", []),
+                embedding=payload.get("embedding", []),
+                content_hash=b"",
+            )
+            log.info(
+                "rollup_received id=%s topic=%s sources=%d",
+                payload.get("rollup_id", "")[:12], payload.get("topic", ""),
+                payload.get("source_count", 0),
+            )
+        except Exception as exc:
+            log.debug("rollup_broadcast_handler_err err=%s", exc)
 
     async def _on_thought_sync(self, payload: dict) -> None:
         """Handle THOUGHT_SYNC_REQUEST or THOUGHT_SYNC_RESPONSE from a peer."""
@@ -1084,6 +1109,24 @@ class L2Miner:
                         )
             except Exception as exc:
                 log.debug("thought_store_pre_hook_err job=%s err=%s", job_id, exc)
+
+        # ── Inject consolidated rollup memory (compact, high-signal) ──────────
+        # Embed the query and pull the single most-relevant rollup from the local
+        # pg_inft replica, prepending its distilled summary so this inference
+        # benefits from a whole cluster of prior knowledge within the token budget.
+        if self._embedder.enabled and self._thought_store is not None:
+            try:
+                q_emb = await self._embedder.embed(spec.get("prompt_slice", "") or prompt)
+                rolls = await self._thought_store.search_rollups(q_emb, model_id, 1)
+                if rolls and float(rolls[0].get("score", 0)) >= 0.5:
+                    prompt = ("Relevant background memory:\n"
+                              + rolls[0]["summary_text"] + "\n\n" + prompt)
+                    log.info(
+                        "rollup_injected job=%s topic=%s score=%.3f",
+                        job_id, rolls[0].get("topic", ""), float(rolls[0]["score"]),
+                    )
+            except Exception as exc:
+                log.debug("rollup_inject_err job=%s err=%s", job_id, exc)
 
         log.info(
             "inference_start job=%s shard=%d model=%s max_tokens=%d backend=%s ctx_chars=%d",

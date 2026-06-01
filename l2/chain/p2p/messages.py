@@ -25,6 +25,7 @@ TOPICS = {
     "context_load_results": "context_load_results", # miners → sequencer: chunk loaded (Option B parallel)
     "thought_broadcast":    "thought_broadcast",    # pg_inft: gossip completed inference thoughts
     "thought_sync":         "thought_sync",         # pg_inft: cold-start sync request/response
+    "rollup_broadcast":     "rollup_broadcast",     # pg_inft: gossip consolidated rollup memories
     "benchmark_challenges": "benchmark_challenges", # sequencer → miners: run benchmark challenge
     "benchmark_responses":  "benchmark_responses",  # miners → sequencer: benchmark result
 }

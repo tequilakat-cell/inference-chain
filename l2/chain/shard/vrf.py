@@ -20,26 +20,38 @@ log = logging.getLogger("chain.shard.vrf")
 
 
 def select_miners(
-    job_id:     str,
-    n_shards:   int,
-    block_hash: str,            # must be the PARENT block hash, already committed
-    validators: list[tuple[str, int]],  # (address, stake_inft) — stake > 0 only
-    exclude:    Optional[set[str]] = None,
+    job_id:      str,
+    n_shards:    int,
+    block_hash:  str,            # must be the PARENT block hash, already committed
+    validators:  list[tuple[str, int]],  # (address, stake_inft) — stake > 0 only
+    exclude:     Optional[set[str]] = None,
+    allow_reuse: bool = True,
 ) -> list[str]:
     """
     Return a list of n_shards miner addresses, one per shard.
     Assignment is stake-weighted: a miner with 2× the stake is 2× as likely to be selected.
-    No miner is assigned two shards of the same job.
+
+    Distinct miners are preferred: each is assigned at most one shard until the
+    eligible pool is exhausted. When allow_reuse is True (default) and more shards
+    remain than there are distinct miners, the pool is replenished and miners may
+    receive additional shards — so a requested shard count is always honoured even
+    on a single-miner network. This is valid for parallel_sample / speculative /
+    context_split, where one miner can run several independent shards.
+
+    Set allow_reuse=False to cap the result at the number of distinct eligible
+    miners (used by select_fallback, which must route to a *different* miner).
 
     Args:
-        job_id:     The job identifier (UUID string).
-        n_shards:   How many shards to assign.
-        block_hash: 0x-prefixed parent block hash (entropy source).
-        validators: List of (address, stake) tuples for all active validators.
-        exclude:    Addresses to skip (e.g. previously slashed miners for this job).
+        job_id:      The job identifier (UUID string).
+        n_shards:    How many shards to assign.
+        block_hash:  0x-prefixed parent block hash (entropy source).
+        validators:  List of (address, stake) tuples for all active validators.
+        exclude:     Addresses to skip (e.g. previously slashed miners for this job).
+        allow_reuse: Permit a miner to take >1 shard when distinct miners run out.
 
     Returns:
-        List of miner addresses of length min(n_shards, eligible_miners).
+        List of miner addresses. Length == n_shards when allow_reuse is True,
+        else min(n_shards, eligible_miners).
     """
     eligible = [
         (addr.lower(), stake)
@@ -52,7 +64,6 @@ def select_miners(
 
     # Sort by address for determinism (same input → same output on every node)
     eligible.sort(key=lambda x: x[0])
-    total_stake = sum(s for _, s in eligible)
 
     assigned: list[str] = []
     used: set[str] = set()
@@ -62,8 +73,13 @@ def select_miners(
     for shard_idx in range(n_shards):
         remaining = [(a, s) for a, s in eligible if a not in used]
         if not remaining:
-            log.warning("vrf_miners_exhausted job=%s shard=%d", job_id, shard_idx)
-            break
+            if not allow_reuse:
+                log.warning("vrf_miners_exhausted job=%s shard=%d", job_id, shard_idx)
+                break
+            # Replenish the pool: every miner becomes eligible again so the
+            # requested shard count is honoured even with fewer distinct miners.
+            used.clear()
+            remaining = list(eligible)
 
         remaining_stake = sum(s for _, s in remaining)
 
@@ -110,5 +126,6 @@ def select_fallback(
         block_hash=block_hash,
         validators=[(a, s) for a, s in validators],
         exclude=previously_used,
+        allow_reuse=False,   # a fallback must be a *different* miner
     )
     return result[0] if result else None

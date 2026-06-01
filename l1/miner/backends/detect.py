@@ -4,9 +4,10 @@ Scans available hardware and returns the optimal backend:
 
   1. CUDA        — NVIDIA GPU with PyTorch + transformers
   2. metal       — Apple Silicon via llama-cpp-python (Metal GPU, GGUF)
-  3. vulkan      — AMD / Intel / NVIDIA via llama.cpp + Vulkan (GGUF)
-  4. llama_cpp   — CPU fallback via llama.cpp (GGUF)
-  5. mock        — No hardware found (dev/test)
+  3. jacobi      — Jacobi parallel decoding (standalone C++ jacobi-server)
+  4. vulkan      — AMD / Intel / NVIDIA via llama.cpp + Vulkan (GGUF)
+  5. llama_cpp   — CPU fallback via llama.cpp (GGUF)
+  6. mock        — No hardware found (dev/test)
 
 All non-CUDA backends use GGUF models via llama-cpp-python.
 MLX is no longer used — Metal (llama.cpp) replaces it on Apple Silicon.
@@ -43,9 +44,11 @@ def get_backend(
         preferred = {"mlx": "metal", "llama": "vulkan"}.get(preferred, preferred)
         return _load_preferred(model_map, preferred)
 
-    # Priority order — Metal before Vulkan on macOS
+    # Priority order — Jacobi before Metal/Vulkan when jacobi-server is available.
+    # Jacobi parallel decoding gives 2-5x speedup over vanilla AR generation.
     candidates = [
         ("cuda",     _try_cuda),
+        ("jacobi",   _try_jacobi),
         ("metal",    _try_metal),
         ("vulkan",   _try_vulkan),
         ("llama_cpp", _try_llama_cpp),
@@ -66,6 +69,7 @@ def get_available_backends() -> list[str]:
     available = []
     for name, try_fn in [
         ("cuda",     _try_cuda),
+        ("jacobi",   _try_jacobi),
         ("metal",    _try_metal),
         ("vulkan",   _try_vulkan),
         ("llama_cpp", _try_llama_cpp),
@@ -80,6 +84,7 @@ def get_available_backends() -> list[str]:
 def _load_preferred(model_map: dict[str, str], name: str) -> InferenceBackend:
     all_backends = {
         "cuda":     _try_cuda,
+        "jacobi":   _try_jacobi,
         "metal":    _try_metal,
         "vulkan":   _try_vulkan,
         "llama_cpp": _try_llama_cpp,
@@ -144,4 +149,19 @@ def _try_llama_cpp(model_map: dict[str, str]) -> Optional[InferenceBackend]:
         return LlamaCppBackend(model_map)
     except Exception as exc:
         log.debug("llama_cpp_unavailable err=%s", exc)
+    return None
+
+
+def _try_jacobi(model_map: dict[str, str]) -> Optional[InferenceBackend]:
+    """Jacobi parallel decoding backend — standalone C++ jacobi-server."""
+    try:
+        from .jacobi_backend import JacobiBackend
+        backend = JacobiBackend(model_map)
+        # Accept if binary found on disk OR a remote jacobi-server URL is set
+        binary = backend.info.get("binary")
+        remote = os.environ.get("JACOBI_SERVER_URL", "")
+        if binary or remote:
+            return backend
+    except Exception as exc:
+        log.debug("jacobi_unavailable err=%s", exc)
     return None

@@ -1,5 +1,5 @@
 .PHONY: help install install-dev compile test lint docker-up docker-down \
-        deploy-l1 deploy-l2 clean
+        deploy-l1 deploy-l2 build-jacobi clean
 
 # ── Default target ─────────────────────────────────────────────────────────────
 help:
@@ -18,6 +18,7 @@ help:
 	@echo "  deploy-l1      Deploy L1 InferenceToken to Base Sepolia"
 	@echo "  deploy-l2      Deploy L2 contracts to Sepolia"
 	@echo ""
+	@echo "  build-jacobi   Build jacobi-server C++ binary (Jacobi parallel decoding)"
 	@echo "  clean          Remove build artifacts and caches"
 
 # ── Python ─────────────────────────────────────────────────────────────────────
@@ -70,8 +71,15 @@ deploy-l1:
 deploy-l2:
 	cd l2 && npx hardhat run scripts/deploy_l1.js --network sepolia
 
+# ── Jacobi fork ───────────────────────────────────────────────────────────────
+build-jacobi:
+	cd l2/jacobi && bash build.sh Release
+
+clean-jacobi:
+	rm -rf l2/jacobi/llama.cpp/build
+
 # ── Clean ──────────────────────────────────────────────────────────────────────
-clean:
+clean: clean-jacobi
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name '*.egg-info' -exec rm -rf {} + 2>/dev/null || true
 	find . -name '*.pyc' -delete 2>/dev/null || true

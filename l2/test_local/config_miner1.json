@@ -14,7 +14,7 @@
   "max_concurrent_shards": 4,
   "key_dir": "~/.inference-miner/keys-miner1",
   "log_level": "INFO",
-  "backend": "metal",
+  "backend": "jacobi",
   "encryption_enabled": false,
   "min_stake_inft": 100,
   "rpc_port": 50052,

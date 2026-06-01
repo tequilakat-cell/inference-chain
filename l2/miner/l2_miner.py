@@ -123,6 +123,8 @@ class L2MinerConfig:
     kv_cache_ttl_s:        int = 3600            # evict files older than this
     # pg_inft memory rollup
     pg_dsn:                Optional[str] = None  # asyncpg DSN; None disables memory rollup
+    # Semantic memory — embedding model (nomic-embed-text-v1.5 = 768 dims)
+    embed_model_path:      str = ""              # path to embedding GGUF; "" disables embeddings
 
 
 def load_config(path: str) -> L2MinerConfig:
@@ -157,6 +159,7 @@ def load_config(path: str) -> L2MinerConfig:
         kv_cache_dir=raw.get("kv_cache_dir", "/tmp/inft_kv"),
         kv_cache_ttl_s=int(raw.get("kv_cache_ttl_s", 3600)),
         pg_dsn=os.environ.get("PG_DSN", raw.get("pg_dsn", None)) or None,
+        embed_model_path=os.environ.get("EMBED_MODEL_PATH", raw.get("embed_model_path", "")),
     )
 
 
@@ -187,6 +190,60 @@ class GPUModelPool:
     @property
     def name(self) -> str:
         return self._backend.name
+
+
+# ── Embedder (semantic memory) ───────────────────────────────────────────────
+
+class Embedder:
+    """
+    Wraps a llama.cpp embedding model (nomic-embed-text-v1.5, 768 dims) to
+    vectorize thoughts for semantic memory. Loads lazily on first use; all
+    methods degrade to [] if the model path is unset or llama_cpp is missing.
+    """
+
+    DIM = 768
+
+    def __init__(self, model_path: str):
+        self._path = os.path.expanduser(model_path) if model_path else ""
+        self._llm = None
+        self._lock = asyncio.Lock()
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self._path) and os.path.isfile(self._path)
+
+    def _load(self) -> None:
+        from llama_cpp import Llama
+        self._llm = Llama(
+            model_path=self._path, embedding=True, n_ctx=2048, verbose=False,
+        )
+        log.info("embedder_loaded path=%s dim=%d", self._path, self.DIM)
+
+    async def embed(self, text: str) -> list:
+        """Return a 768-dim embedding for text, or [] on any failure."""
+        if not self.enabled or not text:
+            return []
+        try:
+            async with self._lock:
+                if self._llm is None:
+                    await asyncio.get_event_loop().run_in_executor(None, self._load)
+
+            def _run() -> list:
+                out = self._llm.create_embedding(text)
+                vec = out["data"][0]["embedding"]
+                # nomic in llama.cpp may return a nested [[...]] for pooled output
+                if vec and isinstance(vec[0], list):
+                    vec = vec[0]
+                return [float(x) for x in vec]
+
+            vec = await asyncio.get_event_loop().run_in_executor(None, _run)
+            if len(vec) != self.DIM:
+                log.warning("embed_dim_mismatch got=%d want=%d", len(vec), self.DIM)
+                return []
+            return vec
+        except Exception as exc:
+            log.debug("embed_failed err=%s", exc)
+            return []
 
 
 # ── L2 Miner ─────────────────────────────────────────────────────────────────
@@ -250,6 +307,9 @@ class L2Miner:
         self._thought_store: Optional[ThoughtStore] = (
             ThoughtStore(cfg.pg_dsn) if cfg.pg_dsn else None
         )
+
+        # Semantic memory embedder (nomic-embed-text-v1.5). No-op if path unset.
+        self._embedder = Embedder(cfg.embed_model_path)
 
     # ── Startup ───────────────────────────────────────────────────────────────
 
@@ -1060,35 +1120,12 @@ class L2Miner:
                     job_id, question_text, thinking_text, answer_text,
                     self.cfg.private_key,
                 )
-                asyncio.create_task(self._thought_store.ingest(
-                    job_id        = job_id,
-                    miner_address = self.address,
-                    model_id      = model_id,
-                    question      = question_text,
-                    thinking      = thinking_text,
-                    answer        = answer_text,
-                    proof_sig_hex = proof_sig_hex,
-                    block_number  = None,
-                    tx_hash       = None,
-                    peer_origin   = None,
+                # Embed + ingest + gossip off the hot path so the ShardResult
+                # returns immediately (embedding adds tens of ms otherwise).
+                asyncio.create_task(self._ingest_and_gossip(
+                    job_id, model_id, question_text, thinking_text,
+                    answer_text, proof_sig_hex,
                 ))
-                log.debug(
-                    "thought_ingest_queued job=%s thinking_chars=%d answer_chars=%d",
-                    job_id, len(thinking_text), len(answer_text),
-                )
-                # Gossip to all peers so their pg_inft stores stay in sync
-                asyncio.create_task(self._p2p.broadcast(TOPICS["thought_broadcast"], {
-                    "type":          THOUGHT_BROADCAST,
-                    "job_id":        job_id,
-                    "miner_address": self.address,
-                    "model_id":      model_id,
-                    "question_text": question_text,
-                    "thinking_text": thinking_text,
-                    "answer_text":   answer_text,
-                    "proof_sig":     proof_sig_hex,
-                    "block_number":  0,
-                    "tx_hash":       "",
-                }))
             except Exception as exc:
                 log.debug("thought_store_post_hook_err job=%s err=%s", job_id, exc)
 
@@ -1105,6 +1142,45 @@ class L2Miner:
             "latency_ms":  elapsed_ms,
             "signature":   signature,
         }
+
+    async def _ingest_and_gossip(
+        self, job_id: str, model_id: str, question: str,
+        thinking: str, answer: str, proof_sig_hex: str,
+    ) -> None:
+        """
+        Embed the question, ingest the thought locally with its vector, and gossip
+        it (vector included) so every replica's semantic index matches. Runs as a
+        background task — never on the inference hot path.
+        """
+        try:
+            embedding = await self._embedder.embed(question)
+            await self._thought_store.ingest(
+                job_id=job_id, miner_address=self.address, model_id=model_id,
+                question=question, thinking=thinking, answer=answer,
+                proof_sig_hex=proof_sig_hex, block_number=None, tx_hash=None,
+                peer_origin=None,
+            )
+            if embedding:
+                await self._thought_store.set_embedding(job_id, embedding)
+            await self._p2p.broadcast(TOPICS["thought_broadcast"], {
+                "type":          THOUGHT_BROADCAST,
+                "job_id":        job_id,
+                "miner_address": self.address,
+                "model_id":      model_id,
+                "question_text": question,
+                "thinking_text": thinking,
+                "answer_text":   answer,
+                "proof_sig":     proof_sig_hex,
+                "block_number":  0,
+                "tx_hash":       "",
+                "embedding":     embedding,
+            })
+            log.debug(
+                "thought_ingest_gossip job=%s emb_dim=%d ans_chars=%d",
+                job_id[:12], len(embedding), len(answer),
+            )
+        except Exception as exc:
+            log.debug("ingest_and_gossip_err job=%s err=%s", job_id[:12], exc)
 
     # ── Model root registration ───────────────────────────────────────────────
 

@@ -45,6 +45,7 @@ class ThoughtBroadcast:
     proof_sig: str      = ""      # 0x-prefixed hex, 65 bytes = "0x" + 130 chars
     block_number: int   = 0
     tx_hash: str        = ""
+    embedding: list     = field(default_factory=list)  # 768-dim query embedding (pg_inft >=1.4)
     timestamp: float    = field(default_factory=time.time)
 
 
@@ -93,6 +94,7 @@ def _from_dict_broadcast(data: dict) -> ThoughtBroadcast:
         proof_sig     = str(data.get("proof_sig", "")),
         block_number  = int(data.get("block_number", 0)),
         tx_hash       = str(data.get("tx_hash", "")),
+        embedding     = list(data.get("embedding", []) or []),
         timestamp     = float(data.get("timestamp", 0.0)),
     )
 
@@ -186,6 +188,13 @@ async def handle_thought_broadcast(
             job_id       = thought.job_id,
             rejected     = not success,
         )
+
+        # Apply the gossiped embedding so every replica's semantic index matches
+        # the producer's (embeddings are not re-computed per node). Done even when
+        # ingest reported a duplicate — set_embedding is an idempotent UPDATE keyed
+        # by job_id, so it also backfills a thought that arrived before its vector.
+        if thought.embedding:
+            await store.set_embedding(thought.job_id, thought.embedding)
 
         if success:
             log.debug(

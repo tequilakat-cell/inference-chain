@@ -153,6 +153,84 @@ class ThoughtStore:
             log.debug("thought_store_recent_err err=%s", exc)
             return []
 
+    # ── Semantic memory (pgvector, pg_inft >= 1.4) ─────────────────────────────
+
+    @staticmethod
+    def _vec(embedding) -> str:
+        """Format a float sequence as a pgvector text literal '[a,b,c]'."""
+        return "[" + ",".join(format(float(x), ".7g") for x in embedding) + "]"
+
+    async def set_embedding(self, job_id: str, embedding) -> bool:
+        """Store the embedding for an already-ingested thought. False on error."""
+        if self._pool is None or not embedding:
+            return False
+        try:
+            return bool(await self._pool.fetchval(
+                "SELECT inft.inft_set_embedding($1, $2::vector)",
+                job_id, self._vec(embedding),
+            ))
+        except Exception as exc:
+            log.debug("thought_store_set_embedding_err job=%s err=%s", job_id, exc)
+            return False
+
+    async def search_semantic(self, embedding, model_id: str = "", limit: int = 20) -> list[ThoughtResult]:
+        """Cosine-nearest thoughts to the supplied query embedding. [] on error."""
+        if self._pool is None or not embedding:
+            return []
+        try:
+            rows = await self._pool.fetch(
+                "SELECT id, job_id, miner_address, model_id, question_text, "
+                "thinking_text, answer_text, score "
+                "FROM inft.inft_search_semantic($1::vector, $2, $3)",
+                self._vec(embedding), model_id, limit,
+            )
+            return [
+                ThoughtResult(
+                    id=r["id"], job_id=r["job_id"] or "",
+                    miner_address=r["miner_address"] or "", model_id=r["model_id"] or "",
+                    question_text=r["question_text"] or "", thinking_text=r["thinking_text"] or "",
+                    answer_text=r["answer_text"] or "", score=float(r["score"] or 0.0),
+                )
+                for r in rows
+            ]
+        except Exception as exc:
+            log.debug("thought_store_search_semantic_err err=%s", exc)
+            return []
+
+    async def upsert_rollup(
+        self, rollup_id: str, topic: str, model_id: str, summary: str,
+        source_count: int, source_job_ids, embedding, content_hash: bytes = b"",
+    ) -> bool:
+        """Store/replace a consolidated rollup memory. False on error."""
+        if self._pool is None:
+            return False
+        try:
+            await self._pool.execute(
+                "SELECT inft.inft_upsert_rollup($1,$2,$3,$4,$5,$6,$7::vector,$8)",
+                rollup_id, topic, model_id, summary, int(source_count),
+                list(source_job_ids), (self._vec(embedding) if embedding else None),
+                content_hash or b"",
+            )
+            return True
+        except Exception as exc:
+            log.debug("thought_store_upsert_rollup_err id=%s err=%s", rollup_id, exc)
+            return False
+
+    async def search_rollups(self, embedding, model_id: str = "", limit: int = 5) -> list[dict]:
+        """Cosine-nearest rollup memories to the supplied query embedding. [] on error."""
+        if self._pool is None or not embedding:
+            return []
+        try:
+            rows = await self._pool.fetch(
+                "SELECT rollup_id, topic, model_id, summary_text, source_count, score "
+                "FROM inft.inft_search_rollups($1::vector, $2, $3)",
+                self._vec(embedding), model_id, limit,
+            )
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            log.debug("thought_store_search_rollups_err err=%s", exc)
+            return []
+
     async def ingest(
         self,
         job_id: str,

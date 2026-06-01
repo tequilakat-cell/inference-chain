@@ -13,7 +13,8 @@ EXTENSION  = pg_inft
 DATA       = sql/pg_inft--1.0.sql \
              sql/pg_inft--1.0--1.1.sql \
              sql/pg_inft--1.1--1.2.sql \
-             sql/pg_inft--1.2--1.3.sql
+             sql/pg_inft--1.2--1.3.sql \
+             sql/pg_inft--1.3--1.4.sql
 
 PG_CONFIG  ?= pg_config
 PGXS       := $(shell $(PG_CONFIG) --pgxs)

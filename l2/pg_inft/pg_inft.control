@@ -1,6 +1,6 @@
 comment = 'pg_inft — distributed LLM memory rollup with Keccak-256 proof verification'
-default_version = '1.3'
+default_version = '1.4'
 module_pathname = '$libdir/pg_inft'
-requires = ''
+requires = 'vector'
 relocatable = false
 schema = inft

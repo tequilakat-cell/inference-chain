@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InferenceChain · Peerbit Explorer</title>
+<style>
+:root {
+  --bg:        #08080f;
+  --surface:   #10101c;
+  --surface2:  #18182a;
+  --surface3:  #20203a;
+  --border:    #252538;
+  --text:      #ddddf5;
+  --muted:     #5c5c80;
+  --muted2:    #8888aa;
+  --accent:    #818cf8;
+  --accent-d:  #4f46e5;
+  --green:     #4ade80;
+  --red:       #f87171;
+  --yellow:    #fbbf24;
+  --orange:    #fb923c;
+  --purple:    #c084fc;
+  --mono: 'Cascadia Code','JetBrains Mono','Fira Code',ui-monospace,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--bg);color:var(--text);display:flex;flex-direction:column}
+
+/* ── Top bar ─────────────────────────────────────────────────── */
+#topbar{
+  height:50px;flex-shrink:0;
+  background:var(--surface);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 18px;gap:12px;z-index:10}
+.logo{
+  width:26px;height:26px;border-radius:6px;flex-shrink:0;
+  background:linear-gradient(135deg,#818cf8 0%,#a855f7 100%);
+  display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:800;color:#fff}
+.logo-title{font-size:14px;font-weight:600}
+.logo-sub{font-size:11px;color:var(--muted2);margin-left:2px}
+.tb-spacer{flex:1}
+.tb-pill{
+  display:flex;align-items:center;gap:6px;
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:20px;padding:4px 12px;font-size:11px;color:var(--muted2)}
+#dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0;
+  transition:background .4s}
+#dot.on{background:var(--green)}
+#dot.off{background:var(--red)}
+#dot-label{font-size:11px}
+.tb-toggle{display:flex;align-items:center;gap:7px;cursor:pointer;
+  font-size:11px;color:var(--muted2);user-select:none}
+.sw{width:30px;height:17px;border-radius:9px;background:var(--border);
+  position:relative;transition:background .2s;cursor:pointer;flex-shrink:0}
+.sw.on{background:var(--accent-d)}
+.sw::after{content:'';position:absolute;top:2px;left:2px;
+  width:13px;height:13px;border-radius:50%;background:#fff;
+  transition:transform .2s}
+.sw.on::after{transform:translateX(13px)}
+
+/* ── Layout ──────────────────────────────────────────────────── */
+#layout{display:flex;flex:1;overflow:hidden}
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+#sidebar{
+  width:190px;flex-shrink:0;
+  background:var(--surface);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;padding:10px 0;overflow-y:auto}
+.ns{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--muted);padding:10px 16px 4px}
+.ni{
+  display:flex;align-items:center;gap:9px;
+  padding:7px 14px;cursor:pointer;font-size:12.5px;color:var(--muted2);
+  transition:all .12s;border-left:2px solid transparent;user-select:none}
+.ni:hover{color:var(--text);background:rgba(255,255,255,.025)}
+.ni.active{color:var(--accent);border-left-color:var(--accent);
+  background:rgba(129,140,248,.07)}
+.ni-icon{font-size:13px;width:15px;text-align:center;flex-shrink:0}
+.ni-badge{
+  margin-left:auto;font-size:10px;
+  background:var(--surface3);color:var(--muted2);
+  padding:1px 6px;border-radius:10px;min-width:22px;text-align:center}
+
+/* ── Main ────────────────────────────────────────────────────── */
+#main{flex:1;overflow-y:auto;padding:24px}
+
+/* ── Page header ─────────────────────────────────────────────── */
+.ph{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px}
+.ph-title{font-size:19px;font-weight:700}
+.ph-sub{font-size:12px;color:var(--muted2);margin-top:3px}
+.ph-actions{display:flex;gap:8px;align-items:center;flex-shrink:0}
+
+/* ── Stat cards ──────────────────────────────────────────────── */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:12px;margin-bottom:20px}
+.card{
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:14px 16px;cursor:pointer;transition:border-color .15s}
+.card:hover{border-color:var(--accent)}
+.cl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--muted2);margin-bottom:6px}
+.cv{font-size:26px;font-weight:800;line-height:1}
+.cs{font-size:11px;color:var(--muted2);margin-top:4px}
+
+/* ── Toolbar ─────────────────────────────────────────────────── */
+.toolbar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+input.inp,select.sel{
+  background:var(--surface);border:1px solid var(--border);border-radius:7px;
+  padding:7px 12px;color:var(--text);font-size:12.5px;outline:none;
+  transition:border-color .15s;font-family:inherit}
+input.inp:focus,select.sel:focus{border-color:var(--accent)}
+input.inp::placeholder{color:var(--muted)}
+input.inp{flex:1;min-width:200px}
+select.sel{cursor:pointer}
+.btn{
+  background:var(--accent-d);color:#fff;border:none;border-radius:7px;
+  padding:7px 14px;font-size:12.5px;cursor:pointer;white-space:nowrap;
+  transition:opacity .15s;font-family:inherit}
+.btn:hover{opacity:.82}
+.btn-ghost{background:var(--surface2);color:var(--muted2);border:1px solid var(--border)}
+.btn-ghost:hover{color:var(--text);opacity:1}
+
+/* ── Table ───────────────────────────────────────────────────── */
+.tw{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+thead tr{background:var(--surface2)}
+thead th{
+  padding:9px 13px;text-align:left;
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted2);white-space:nowrap}
+tbody tr{border-top:1px solid var(--border);cursor:pointer;transition:background .1s}
+tbody tr:hover{background:rgba(129,140,248,.04)}
+td{padding:9px 13px;vertical-align:middle;max-width:260px}
+.mono{font-family:var(--mono);font-size:11px}
+.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+
+/* ── Badges ──────────────────────────────────────────────────── */
+.badge{display:inline-flex;align-items:center;gap:4px;
+  padding:2px 8px;border-radius:20px;font-size:10.5px;font-weight:600;white-space:nowrap}
+.bg{background:rgba(74,222,128,.12);color:var(--green)}
+.br{background:rgba(248,113,113,.12);color:var(--red)}
+.by{background:rgba(251,191,36,.12);color:var(--yellow)}
+.bb{background:rgba(129,140,248,.12);color:var(--accent)}
+.bz{background:var(--surface3);color:var(--muted2)}
+.bp{background:rgba(192,132,252,.12);color:var(--purple)}
+.bo{background:rgba(251,146,60,.12);color:var(--orange)}
+
+/* ── Bar ─────────────────────────────────────────────────────── */
+.bar-bg{height:3px;background:var(--surface3);border-radius:2px;overflow:hidden;margin-top:4px}
+.bar-fill{height:100%;border-radius:2px;background:var(--accent);transition:width .3s}
+
+/* ── Miner cards ─────────────────────────────────────────────── */
+.miner-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.miner-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:14px 16px;cursor:pointer;transition:border-color .15s}
+.miner-card:hover{border-color:var(--accent)}
+.mc-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.mc-avatar{
+  width:32px;height:32px;border-radius:8px;flex-shrink:0;
+  background:linear-gradient(135deg,var(--accent-d),var(--purple));
+  display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:700;color:#fff}
+.mc-addr{font-family:var(--mono);font-size:11px;color:var(--muted2)}
+.mc-rows{display:flex;flex-direction:column;gap:5px}
+.mc-row{display:flex;justify-content:space-between;font-size:11.5px;align-items:center}
+.mc-key{color:var(--muted2)}
+.model-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.model-tag{
+  background:var(--surface3);border:1px solid var(--border);
+  border-radius:5px;padding:2px 7px;font-size:10px;color:var(--muted2)}
+
+/* ── Empty / loading ─────────────────────────────────────────── */
+.empty{text-align:center;padding:50px 20px;color:var(--muted)}
+.empty-icon{font-size:36px;margin-bottom:10px}
+.empty-txt{font-size:13px}
+.loading{text-align:center;padding:30px;color:var(--muted2);font-size:13px}
+.spin{display:inline-block;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Section header ──────────────────────────────────────────── */
+.sh{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--muted2);margin-bottom:10px;margin-top:20px}
+.sh:first-child{margin-top:0}
+
+/* ── Modal ───────────────────────────────────────────────────── */
+#ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
+  z-index:50;align-items:center;justify-content:center}
+#ov.open{display:flex}
+#mb{
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  width:700px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column}
+#mh{padding:14px 18px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;gap:12px}
+#mt{font-size:14px;font-weight:700;flex:1;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+#mx{width:26px;height:26px;border-radius:6px;background:var(--surface2);
+  border:none;color:var(--muted2);cursor:pointer;font-size:16px;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0}
+#mx:hover{color:var(--text)}
+#mbody{padding:18px;overflow-y:auto;flex:1}
+.dr{display:flex;gap:12px;margin-bottom:12px;align-items:flex-start}
+.dk{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted2);min-width:110px;padding-top:2px;flex-shrink:0}
+.dv{font-size:12.5px;flex:1;word-break:break-all;line-height:1.5}
+.dblock{
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  padding:10px 12px;font-size:11.5px;line-height:1.65;
+  white-space:pre-wrap;word-break:break-word;max-height:180px;overflow-y:auto;
+  color:var(--text);font-family:inherit}
+
+/* ── Activity feed ───────────────────────────────────────────── */
+.feed{display:flex;flex-direction:column;gap:0}
+.feed-item{
+  display:flex;align-items:flex-start;gap:12px;
+  padding:10px 14px;border-top:1px solid var(--border);
+  cursor:pointer;transition:background .1s}
+.feed-item:first-child{border-top:none}
+.feed-item:hover{background:rgba(129,140,248,.04)}
+.feed-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--accent);
+  flex-shrink:0;margin-top:4px}
+.feed-body{flex:1;min-width:0}
+.feed-title{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.feed-meta{font-size:11px;color:var(--muted2);margin-top:2px}
+
+/* ── Scrollbars ──────────────────────────────────────────────── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--surface3)}
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div id="topbar">
+  <div class="logo">P</div>
+  <span class="logo-title">Peerbit Explorer</span>
+  <span class="logo-sub">· InferenceChain</span>
+  <div class="tb-spacer"></div>
+  <div class="tb-pill"><div id="dot"></div><span id="dot-label">connecting…</span></div>
+  <label class="tb-toggle" title="Auto-refresh every 10s">
+    <div class="sw" id="sw" onclick="toggleRefresh()"></div>
+    <span id="sw-label">auto</span>
+  </label>
+</div>
+
+<!-- Body -->
+<div id="layout">
+
+  <!-- Sidebar -->
+  <nav id="sidebar">
+    <div class="ns">Database</div>
+    <div class="ni active" data-v="overview"  onclick="nav(this)"><span class="ni-icon">◈</span> Overview  <span class="ni-badge" id="b-overview">—</span></div>
+    <div class="ni"        data-v="thoughts"  onclick="nav(this)"><span class="ni-icon">💭</span> Thoughts  <span class="ni-badge" id="b-thoughts">—</span></div>
+    <div class="ni"        data-v="rollups"   onclick="nav(this)"><span class="ni-icon">🧠</span> Rollups   <span class="ni-badge" id="b-rollups">—</span></div>
+    <div class="ni"        data-v="miners"    onclick="nav(this)"><span class="ni-icon">⛏</span> Miners    <span class="ni-badge" id="b-miners">—</span></div>
+    <div class="ni"        data-v="benchmarks"onclick="nav(this)"><span class="ni-icon">⚡</span> Benchmarks<span class="ni-badge" id="b-benchmarks">—</span></div>
+    <div class="ni"        data-v="jobs"      onclick="nav(this)"><span class="ni-icon">📋</span> Jobs      <span class="ni-badge" id="b-jobs">—</span></div>
+    <div class="ni"        data-v="reputation"onclick="nav(this)"><span class="ni-icon">⭐</span> Reputation<span class="ni-badge" id="b-reputation">—</span></div>
+  </nav>
+
+  <!-- Main content -->
+  <div id="main"><div class="loading"><span class="spin">⟳</span> Loading…</div></div>
+</div>
+
+<!-- Modal -->
+<div id="ov" onclick="if(event.target===this)closeModal()">
+  <div id="mb">
+    <div id="mh">
+      <div id="mt">Detail</div>
+      <button id="mx" onclick="closeModal()">✕</button>
+    </div>
+    <div id="mbody"></div>
+  </div>
+</div>
+
+<script>
+// ── State ───────────────────────────────────────────────────────
+const S = { view: 'overview', autoRefresh: true, timer: null, counts: {} };
+
+// ── Helpers ──────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const trunc = (s, n=60) => s && s.length > n ? s.slice(0, n) + '…' : (s || '');
+const shortAddr = a => a && a.length > 16 ? a.slice(0,8)+'…'+a.slice(-6) : (a||'—');
+const shortModel = m => m ? (m.includes('/') ? m.split('/').pop() : m) : '—';
+const reltime = ms => {
+  if (!ms) return '—';
+  const d = Date.now() - ms;
+  if (d < 5000) return 'just now';
+  if (d < 60000) return Math.floor(d/1000)+'s ago';
+  if (d < 3600000) return Math.floor(d/60000)+'m ago';
+  if (d < 86400000) return Math.floor(d/3600000)+'h ago';
+  return Math.floor(d/86400000)+'d ago';
+};
+const fmtDate = ms => ms ? new Date(ms).toLocaleString() : '—';
+const badge = (t, cls) => `<span class="badge ${cls}">${esc(t)}</span>`;
+const statusBadge = s => s === 'complete' ? badge(s,'bg') : s === 'partial' ? badge(s,'by') : badge(s||'—','bz');
+
+// ── API ──────────────────────────────────────────────────────────
+async function api(path, opts={}) {
+  try {
+    const r = await fetch(path, { ...opts,
+      headers: { 'Content-Type':'application/json', ...(opts.headers||{}) },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    const j = await r.json();
+    return j.ok ? j.data : null;
+  } catch { return null; }
+}
+
+// ── Health poll ──────────────────────────────────────────────────
+async function pollHealth() {
+  const ok = await api('/health');
+  const dot = $('dot'), lbl = $('dot-label');
+  if (ok !== null) {
+    dot.className = 'on'; lbl.textContent = 'online';
+  } else {
+    dot.className = 'off'; lbl.textContent = 'offline';
+  }
+}
+
+async function pollStatus() {
+  const s = await api('/status');
+  if (!s) return;
+  S.counts = s;
+  $('b-overview').textContent   = '—';
+  $('b-thoughts').textContent   = fmt(s.thoughts);
+  $('b-rollups').textContent    = fmt(s.rollups);
+  $('b-miners').textContent     = fmt(s.miners_active);
+  $('b-benchmarks').textContent = fmt(s.benchmarks);
+  $('b-jobs').textContent       = fmt(s.jobs);
+  $('b-reputation').textContent = fmt(s.reputation_events);
+}
+const fmt = n => n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n ?? 0);
+
+// ── Navigation ───────────────────────────────────────────────────
+function nav(el) {
+  document.querySelectorAll('.ni').forEach(n => n.classList.remove('active'));
+  el.classList.add('active');
+  S.view = el.dataset.v;
+  render();
+}
+
+// ── Auto-refresh ─────────────────────────────────────────────────
+function toggleRefresh() {
+  S.autoRefresh = !S.autoRefresh;
+  const sw = $('sw');
+  sw.classList.toggle('on', S.autoRefresh);
+  $('sw-label').textContent = S.autoRefresh ? 'auto' : 'paused';
+}
+
+// ── Main render dispatcher ───────────────────────────────────────
+async function render() {
+  const views = { overview, thoughts, rollups, miners, benchmarks, jobs, reputation };
+  const fn = views[S.view];
+  if (fn) await fn();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// OVERVIEW
+// ══════════════════════════════════════════════════════════════════
+async function overview() {
+  $('main').innerHTML = '<div class="loading"><span class="spin">⟳</span> Loading…</div>';
+  const [status, recentThoughts, activeMiners] = await Promise.all([
+    api('/status'),
+    api('/thoughts/recent?limit=8'),
+    api('/miners'),
+  ]);
+  const c = status || {};
+  $('main').innerHTML = `
+    <div class="ph">
+      <div><div class="ph-title">Overview</div>
+        <div class="ph-sub">Live state of the distributed Peerbit database</div></div>
+    </div>
+
+    <div class="cards">
+      <div class="card" onclick="nav(document.querySelector('[data-v=thoughts]'))">
+        <div class="cl">Thoughts</div>
+        <div class="cv" style="color:var(--accent)">${fmt(c.thoughts)}</div>
+        <div class="cs">inference records</div>
+      </div>
+      <div class="card" onclick="nav(document.querySelector('[data-v=rollups]'))">
+        <div class="cl">Rollups</div>
+        <div class="cv" style="color:var(--purple)">${fmt(c.rollups)}</div>
+        <div class="cs">memory summaries</div>
+      </div>
+      <div class="card" onclick="nav(document.querySelector('[data-v=miners]'))">
+        <div class="cl">Active Miners</div>
+        <div class="cv" style="color:var(--green)">${fmt(c.miners_active)}</div>
+        <div class="cs">of ${fmt(c.miners_total)} total</div>
+      </div>
+      <div class="card" onclick="nav(document.querySelector('[data-v=benchmarks]'))">
+        <div class="cl">Benchmarks</div>
+        <div class="cv" style="color:var(--yellow)">${fmt(c.benchmarks)}</div>
+        <div class="cs">miner×model scores</div>
+      </div>
+      <div class="card" onclick="nav(document.querySelector('[data-v=jobs]'))">
+        <div class="cl">Jobs</div>
+        <div class="cv" style="color:var(--orange)">${fmt(c.jobs)}</div>
+        <div class="cs">on job board</div>
+      </div>
+      <div class="card" onclick="nav(document.querySelector('[data-v=reputation]'))">
+        <div class="cl">Rep Events</div>
+        <div class="cv" style="color:var(--red)">${fmt(c.reputation_events)}</div>
+        <div class="cs">shard outcomes</div>
+      </div>
+    </div>
+
+    <div class="sh">Recent Thoughts</div>
+    ${recentThoughts && recentThoughts.length ? `
+    <div class="tw">
+      <div class="feed">
+        ${recentThoughts.map(t => `
+        <div class="feed-item" onclick='showThought(${JSON.stringify(t)})'>
+          <div class="feed-dot"></div>
+          <div class="feed-body">
+            <div class="feed-title">${esc(trunc(t.question_text, 80))}</div>
+            <div class="feed-meta">
+              ${badge(shortModel(t.model_id),'bb')} &nbsp;
+              ${badge(shortAddr(t.miner_address),'bz')} &nbsp;
+              <span class="text-muted">${reltime(t.id)}</span>
+            </div>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>` : '<div class="empty"><div class="empty-icon">💭</div><div class="empty-txt">No thoughts yet</div></div>'}
+
+    ${activeMiners && activeMiners.length ? `
+    <div class="sh" style="margin-top:20px">Active Miners</div>
+    <div class="miner-grid">
+      ${activeMiners.slice(0,6).map(m => minerCard(m)).join('')}
+    </div>` : ''}
+  `;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// THOUGHTS
+// ══════════════════════════════════════════════════════════════════
+let thoughtSearch = '';
+let thoughtModel = '';
+async function thoughts() {
+  $('main').innerHTML = `
+    <div class="ph">
+      <div><div class="ph-title">Thoughts</div>
+        <div class="ph-sub">Completed inference records stored in the distributed log</div></div>
+    </div>
+    <div class="toolbar">
+      <input class="inp" id="tsq" placeholder="Search question / answer / thinking…" value="${esc(thoughtSearch)}"
+        onkeydown="if(event.key==='Enter')searchThoughts()">
+      <input class="inp" id="tmq" placeholder="model filter (optional)" value="${esc(thoughtModel)}" style="max-width:220px"
+        onkeydown="if(event.key==='Enter')searchThoughts()">
+      <button class="btn" onclick="searchThoughts()">Search</button>
+      <button class="btn btn-ghost" onclick="loadRecentThoughts()">Recent</button>
+    </div>
+    <div id="thought-table"><div class="loading"><span class="spin">⟳</span></div></div>
+  `;
+  if (thoughtSearch) searchThoughts(); else loadRecentThoughts();
+}
+
+async function loadRecentThoughts() {
+  const model = $('tmq')?.value || thoughtModel;
+  thoughtSearch = ''; thoughtModel = model;
+  const rows = await api(`/thoughts/recent?model_id=${encodeURIComponent(model)}&limit=50`);
+  renderThoughtTable(rows, 'Recent');
+}
+
+async function searchThoughts() {
+  const q = $('tsq')?.value || ''; const m = $('tmq')?.value || '';
+  thoughtSearch = q; thoughtModel = m;
+  const rows = await api(`/thoughts/search?q=${encodeURIComponent(q)}&model_id=${encodeURIComponent(m)}&limit=50`);
+  renderThoughtTable(rows, `Results for "${q}"`);
+}
+
+function renderThoughtTable(rows, label) {
+  if (!rows || !rows.length) {
+    $('thought-table').innerHTML = '<div class="empty"><div class="empty-icon">💭</div><div class="empty-txt">No thoughts found</div></div>';
+    return;
+  }
+  $('thought-table').innerHTML = `
+    <div class="sh">${esc(label)} — ${rows.length} records</div>
+    <div class="tw"><table>
+      <thead><tr>
+        <th>Question</th><th>Model</th><th>Miner</th><th>Score</th><th>Time</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(t => `
+        <tr onclick='showThought(${JSON.stringify(t)})'>
+          <td><span class="trunc" style="max-width:320px">${esc(trunc(t.question_text,70))}</span></td>
+          <td>${badge(shortModel(t.model_id),'bb')}</td>
+          <td><span class="mono text-muted">${shortAddr(t.miner_address)}</span></td>
+          <td><span style="color:var(--accent)">${(t.score||0).toFixed(2)}</span></td>
+          <td class="text-muted">${reltime(t.id)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+}
+
+function showThought(t) {
+  $('mt').textContent = `Thought · ${trunc(t.question_text, 50)}`;
+  $('mbody').innerHTML = `
+    <div class="dr"><div class="dk">Job ID</div><div class="dv mono">${esc(t.job_id)}</div></div>
+    <div class="dr"><div class="dk">Miner</div><div class="dv mono">${esc(t.miner_address)}</div></div>
+    <div class="dr"><div class="dk">Model</div><div class="dv">${badge(esc(t.model_id),'bb')}</div></div>
+    <div class="dr"><div class="dk">Score</div><div class="dv" style="color:var(--accent)">${(t.score||0).toFixed(4)}</div></div>
+    ${t.question_text ? `
+    <div class="dr"><div class="dk">Question</div></div>
+    <div class="dblock">${esc(t.question_text)}</div>` : ''}
+    ${t.thinking_text ? `
+    <div class="dr" style="margin-top:10px"><div class="dk">Thinking</div></div>
+    <div class="dblock" style="color:var(--muted2)">${esc(t.thinking_text)}</div>` : ''}
+    ${t.answer_text ? `
+    <div class="dr" style="margin-top:10px"><div class="dk">Answer</div></div>
+    <div class="dblock" style="color:var(--green)">${esc(t.answer_text)}</div>` : ''}
+  `;
+  $('ov').classList.add('open');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ROLLUPS
+// ══════════════════════════════════════════════════════════════════
+async function rollups() {
+  $('main').innerHTML = '<div class="loading"><span class="spin">⟳</span> Loading…</div>';
+  const rows = await api('/rollups?limit=100');
+  $('main').innerHTML = `
+    <div class="ph">
+      <div><div class="ph-title">Rollups</div>
+        <div class="ph-sub">Consolidated semantic memory summaries</div></div>
+    </div>
+    ${!rows || !rows.length
+      ? '<div class="empty"><div class="empty-icon">🧠</div><div class="empty-txt">No rollups yet — run inft_rollupMemory to generate</div></div>'
+      : `<div class="tw"><table>
+      <thead><tr>
+        <th>Rollup ID</th><th>Topic</th><th>Model</th><th>Sources</th><th>Created</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `
+        <tr onclick='showRollup(${JSON.stringify(r)})'>
+          <td><span class="mono text-muted">${shortAddr(r.rollup_id)}</span></td>
+          <td><span class="trunc">${esc(trunc(r.topic,40))}</span></td>
+          <td>${badge(shortModel(r.model_id),'bb')}</td>
+          <td>${badge(r.source_count,'bp')}</td>
+          <td class="text-muted">${r.created_at ? reltime(new Date(r.created_at).getTime()) : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>`}
+  `;
+}
+
+function showRollup(r) {
+  $('mt').textContent = `Rollup · ${trunc(r.topic, 50)}`;
+  $('mbody').innerHTML = `
+    <div class="dr"><div class="dk">Rollup ID</div><div class="dv mono">${esc(r.rollup_id)}</div></div>
+    <div class="dr"><div class="dk">Model</div><div class="dv">${badge(esc(r.model_id),'bb')}</div></div>
+    <div class="dr"><div class="dk">Topic</div><div class="dv">${esc(r.topic)}</div></div>
+    <div class="dr"><div class="dk">Sources</div><div class="dv">${r.source_count} thoughts</div></div>
+    <div class="dr"><div class="dk">Created</div><div class="dv">${r.created_at ? fmtDate(new Date(r.created_at).getTime()) : '—'}</div></div>
+    <div class="dr" style="margin-top:4px"><div class="dk">Summary</div></div>
+    <div class="dblock">${esc(r.summary_text)}</div>
+    ${r.source_job_ids && r.source_job_ids.length ? `
+    <div class="dr" style="margin-top:10px"><div class="dk">Source Jobs</div>
+    <div class="dv"><div style="display:flex;flex-wrap:wrap;gap:4px">
+      ${r.source_job_ids.map(id => `<span class="mono" style="font-size:10px;background:var(--surface3);padding:2px 6px;border-radius:4px">${esc(shortAddr(id))}</span>`).join('')}
+    </div></div></div>` : ''}
+  `;
+  $('ov').classList.add('open');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// MINERS
+// ══════════════════════════════════════════════════════════════════
+async function miners() {
+  $('main').innerHTML = '<div class="loading"><span class="spin">⟳</span></div>';
+  const rows = await api('/miners');
+  const all  = await api('/miners?model=');  // all including stale
+  $('main').innerHTML = `
+    <div class="ph">
+      <div><div class="ph-title">Miners</div>
+        <div class="ph-sub">Active registered miners in the distributed registry</div></div>
+    </div>
+    ${!rows || !rows.length
+      ? '<div class="empty"><div class="empty-icon">⛏</div><div class="empty-txt">No active miners</div></div>'
+      : `<div class="miner-grid">${rows.map(m => minerCard(m)).join('')}</div>`}
+  `;
+}
+
+function minerCard(m) {
+  const initials = (m.address||'?').slice(2,4).toUpperCase();
+  const rep = (m.reputation || 0);
+  const repColor = rep >= 0 ? 'var(--green)' : 'var(--red)';
+  return `
+  <div class="miner-card" onclick='showMiner(${JSON.stringify(m)})'>
+    <div class="mc-top">
+      <div class="mc-avatar">${initials}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(shortAddr(m.address))}</div>
+        <div class="mc-addr">${esc(m.backend||'—')}</div>
+      </div>
+      ${badge('active','bg')}
+    </div>
+    <div class="mc-rows">
+      <div class="mc-row">
+        <span class="mc-key">Reputation</span>
+        <span style="color:${repColor};font-weight:600">${rep >= 0 ? '+' : ''}${rep}</span>
+      </div>
+      <div class="mc-row">
+        <span class="mc-key">Max Shards</span>
+        <span>${m.max_shards ?? '—'}</span>
+      </div>
+      <div class="mc-row">
+        <span class="mc-key">Last seen</span>
+        <span class="text-muted">${reltime(new Date(m.last_seen||0).getTime())}</span>
+      </div>
+    </div>
+    <div class="model-tags">
+      ${(m.models||[]).map(md => `<span class="model-tag">${esc(shortModel(md))}</span>`).join('')}
+    </div>
+  </div>`;
+}
+
+function showMiner(m) {
+  $('mt').textContent = `Miner · ${shortAddr(m.address)}`;
+  $('mbody').innerHTML = `
+    <div class="dr"><div class="dk">Address</div><div class="dv mono">${esc(m.address)}</div></div>
+    <div class="dr"><div class="dk">Backend</div><div class="dv">${badge(esc(m.backend||'—'),'bz')}</div></div>
+    <div class="dr"><div class="dk">P2P Addr</div><div class="dv mono">${esc(m.p2p_addr||'—')}</div></div>
+    <div class="dr"><div class="dk">Max Shards</div><div class="dv">${m.max_shards ?? '—'}</div></div>
+    <div class="dr"><div class="dk">Reputation</div>
+      <div class="dv" style="color:${(m.reputation||0)>=0?'var(--green)':'var(--red)'}">
+        ${(m.reputation||0)>=0?'+':''}${m.reputation||0}</div></div>
+    <div class="dr"><div class="dk">Last Seen</div><div class="dv">${fmtDate(new Date(m.last_seen||0).getTime())}</div></div>
+    <div class="dr"><div class="dk">Models</div>
+      <div class="dv"><div style="display:flex;flex-direction:column;gap:4px">
+        ${(m.models||[]).map(md => `<span class="mono" style="font-size:11px">${esc(md)}</span>`).join('')}
+      </div></div>
+    </div>
+  `;
+  $('ov').classList.add('open');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// BENCHMARKS
+// ══════════════════════════════════════════════════════════════════
+async function benchmarks() {
+  $('main').innerHTML = '<div class="loading"><span class="spin">⟳</span></div>';
+  const rows = await api('/benchmarks');
+  let maxTps = 1;
+  if (rows) rows.forEach(r => { maxTps = Math.max(maxTps, r.tokens_per_sec || 0, r.live_tps || 0); });
+  $('main').innerHTML = `
+    <div class="ph">
+      <div><div class="ph-title">Benchmarks</div>
+        <div class="ph-sub">Miner × model throughput scores</div></div>
+    </div>
+    ${!rows || !rows.length
+      ? '<div class="empty"><div class="empty-icon">⚡</div><div class="empty-txt">No benchmarks recorded yet</div></div>'
+      : `<div class="tw"><table>
+      <thead><tr>
+        <th>Miner</th><th>Model</th><th>Bench TPS</th><th>Live TPS</th><th>Samples</th><th>Expires Block</th>
+      </tr></thead>
+      <tbody>
+        ${rows.sort((a,b)=>(b.tokens_per_sec||0)-(a.tokens_per_sec||0)).map(r => {
+          const pct = Math.round(((r.tokens_per_sec||0)/maxTps)*100);
+          const lpct = Math.round(((r.live_tps||0)/maxTps)*100);
+          return `<tr onclick='showBenchmark(${JSON.stringify(r)})'>
+            <td><span class="mono">${shortAddr(r.miner_address)}</span></td>
+            <td>${badge(shortModel(r.model_id),'bb')}</td>
+            <td>
+              <span style="color:var(--accent)">${(r.tokens_per_sec||0).toFixed(1)}</span> t/s
+              <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+            </td>
+            <td>
+              ${r.live_tps ? `<span style="color:var(--green)">${r.live_tps.toFixed(1)}</span> t/s
+              <div class="bar-bg"><div class="bar-fill" style="width:${lpct}%;background:var(--green)"></div></div>`
+              : '<span class="text-muted">—</span>'}
+            </td>
+            <td>${r.live_sample_count ?? 0}</td>
+            <td class="text-muted">#${r.expires_at_block ?? '—'}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>`}
+  `;
+}
+
+function showBenchmark(r) {
+  $('mt').textContent = `Benchmark · ${shortAddr(r.miner_address)} / ${shortModel(r.model_id)}`;
+  $('mbody').innerHTML = `
+    <div class="dr"><div class="dk">Miner</div><div class="dv mono">${esc(r.miner_address)}</div></div>
+    <div class="dr"><div class="dk">Model</div><div class="dv">${badge(esc(r.model_id),'bb')}</div></div>
+    <div class="dr"><div class="dk">Bench TPS</div><div class="dv" style="color:var(--accent)">${(r.tokens_per_sec||0).toFixed(2)} tokens/sec</div></div>
+    <div class="dr"><div class="dk">Live TPS</div><div class="dv" style="color:var(--green)">${r.live_tps ? r.live_tps.toFixed(2)+' tokens/sec' : '—'}</div></div>
+    <div class="dr"><div class="dk">Samples</div><div class="dv">${r.live_sample_count ?? 0} production jobs</div></div>
+    <div class="dr"><div class="dk">Token Count</div><div class="dv">${r.n_tokens ?? '—'}</div></div>
+    <div class="dr"><div class="dk">Elapsed</div><div class="dv">${r.elapsed_ms ? r.elapsed_ms+'ms' : '—'}</div></div>
+    <div class="dr"><div class="dk">Block</div><div class="dv">#${r.block_number ?? '—'}</div></div>
+    <div class="dr"><div class="dk">Expires</div><div class="dv">block #${r.expires_at_block ?? '—'}</div></div>
+    <div class="dr"><div class="dk">Nonce</div><div class="dv mono">${esc(trunc(r.nonce,40))}</div></div>
+    <div class="dr"><div class="dk">Updated</div><div class="dv">${r.last_updated ? fmtDate(new Date(r.last_updated).getTime()) : '—'}</div></div>
+  `;
+  $('ov').classList.add('open');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// JOBS
+// ══════════════════════════════════════════════════════════════════
+async function jobs() {
+  $('main').innerHTML = '<div class="loading"><span class="spin">⟳</span></div>';
+  $('main').innerHTML = `
+    <div class="ph">
+      <div><div class="ph-title">Jobs</div>
+        <div class="ph-sub">Inference job board — accepted and completed jobs</div></div>
+    </div>
+    <div id="job-content"><div class="loading"><span class="spin">⟳</span></div></div>
+  `;
+  await loadJobs();
+}
+
+async function loadJobs() {
+  // Fetch all benchmarks to get miners, then fetch jobs
+  // Jobs are stored per-miner so we need a /jobs list endpoint
+  // Add it inline by fetching from status + recent thoughts as proxy
+  const jobData = await fetchJobList();
+  const el = $('job-content');
+  if (!jobData || !jobData.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">📋</div><div class="empty-txt">No jobs recorded</div></div>';
+    return;
+  }
+  el.innerHTML = `
+    <div class="tw"><table>
+      <thead><tr>
+        <th>Job ID</th><th>Model</th><th>Mode</th><th>Shards</th><th>Status</th><th>Latency</th>
+      </tr></thead>
+      <tbody>
+        ${jobData.map(j => `
+        <tr onclick='showJob(${JSON.stringify(j)})'>
+          <td><span class="mono text-muted">${shortAddr(j.job_id)}</span></td>
+          <td>${badge(shortModel(j.model_id),'bb')}</td>
+          <td>${j.mode ? badge(j.mode,'bz') : '<span class="text-muted">—</span>'}</td>
+          <td>${j.n_shards || '—'}</td>
+          <td>${statusBadge(j.status)}</td>
+          <td>${j.latency_ms ? j.latency_ms+'ms' : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+}
+
+async function fetchJobList() {
+  return await api('/jobs?limit=100') || [];
+}
+
+function showJob(j) {
+  $('mt').textContent = `Job · ${shortAddr(j.job_id)}`;
+  $('mbody').innerHTML = `
+    <div class="dr"><div class="dk">Job ID</div><div class="dv mono">${esc(j.job_id)}</div></div>
+    <div class="dr"><div class="dk">Model</div><div class="dv">${badge(esc(j.model_id),'bb')}</div></div>
+    <div class="dr"><div class="dk">Mode</div><div class="dv">${badge(esc(j.mode||'—'),'bz')}</div></div>
+    <div class="dr"><div class="dk">Shards</div><div class="dv">${j.n_shards ?? '—'}</div></div>
+    <div class="dr"><div class="dk">Status</div><div class="dv">${statusBadge(j.status)}</div></div>
+    <div class="dr"><div class="dk">Latency</div><div class="dv">${j.latency_ms ? j.latency_ms+'ms' : '—'}</div></div>
+    <div class="dr"><div class="dk">Output Hash</div><div class="dv mono">${esc(trunc(j.output_hash,60))}</div></div>
+  `;
+  $('ov').classList.add('open');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// REPUTATION
+// ══════════════════════════════════════════════════════════════════
+let repAddr = '';
+async function reputation() {
+  $('main').innerHTML = `
+    <div class="ph">
+      <div><div class="ph-title">Reputation</div>
+        <div class="ph-sub">Shard outcome events logged to the distributed ledger</div></div>
+    </div>
+    <div class="toolbar">
+      <input class="inp" id="rep-addr" placeholder="Miner address (0x…)" value="${esc(repAddr)}"
+        onkeydown="if(event.key==='Enter')loadRep()">
+      <button class="btn" onclick="loadRep()">Load Events</button>
+    </div>
+    <div id="rep-table"><div class="empty"><div class="empty-icon">⭐</div>
+      <div class="empty-txt">Enter a miner address to view reputation events</div></div></div>
+  `;
+}
+
+async function loadRep() {
+  const addr = $('rep-addr')?.value?.trim();
+  if (!addr) return;
+  repAddr = addr;
+  $('rep-table').innerHTML = '<div class="loading"><span class="spin">⟳</span></div>';
+  const rows = await api(`/reputation/${encodeURIComponent(addr)}`);
+  if (!rows || !rows.length) {
+    $('rep-table').innerHTML = '<div class="empty"><div class="empty-icon">⭐</div><div class="empty-txt">No events found for this miner</div></div>';
+    return;
+  }
+  const total = rows.reduce((s, r) => s + (r.delta || 0), 0);
+  $('rep-table').innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <span class="text-muted" style="font-size:12px">Total reputation:</span>
+      <span style="font-size:18px;font-weight:700;color:${total>=0?'var(--green)':'var(--red)'}">${total>=0?'+':''}${total}</span>
+    </div>
+    <div class="tw"><table>
+      <thead><tr>
+        <th>Type</th><th>Delta</th><th>Job ID</th><th>Shard</th><th>Time</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `
+        <tr>
+          <td>${r.event_type === 'shard_complete' ? badge('✓ complete','bg') : badge('✗ failed','br')}</td>
+          <td style="color:${(r.delta||0)>=0?'var(--green)':'var(--red)'}">
+            ${(r.delta||0)>=0?'+':''}${r.delta||0}</td>
+          <td><span class="mono text-muted">${shortAddr(r.job_id)}</span></td>
+          <td>${r.shard_idx ?? '—'}</td>
+          <td class="text-muted">${r.created_at ? reltime(new Date(r.created_at).getTime()) : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+}
+
+// ── Modal helpers ────────────────────────────────────────────────
+function closeModal() { $('ov').classList.remove('open'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// ── Bootstrap ────────────────────────────────────────────────────
+async function init() {
+  // Initial render
+  await render();
+
+  // Poll health + status
+  await pollHealth();
+  await pollStatus();
+
+  // Periodic refresh
+  setInterval(async () => {
+    await pollHealth();
+    await pollStatus();
+    if (S.autoRefresh) await render();
+  }, 10_000);
+}
+
+// Set initial toggle state
+$('sw').classList.add('on');
+init();
+</script>
+</body>
+</html>

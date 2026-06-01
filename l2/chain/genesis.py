@@ -100,8 +100,8 @@ CHAIN_DEFAULTS = {
     "context_load_enabled":    True,     # set False to disable the pre-phase entirely
     "kv_cache_dir":            "/tmp/inft_kv",  # where miners store prompt-cache files (Phase 4)
     "kv_cache_ttl_s":          3600,     # evict KV cache files older than this
-    # pg_inft persistent storage (optional; set in genesis.json or PG_DSN env var)
-    "pg_dsn": None,     # e.g. "postgresql://localhost/inft_memory"
+    # Peerbit sidecar URL (optional; set in genesis.json or PEERBIT_URL env var)
+    "peerbit_url": None,    # e.g. "http://127.0.0.1:7731"
     # Miner hardware benchmark (Phase 5)
     # Sequencer measures wall-clock time from challenge send → response received.
     # Score = benchmark_n_tokens / elapsed_s  (tokens/sec).

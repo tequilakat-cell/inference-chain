@@ -38,7 +38,7 @@ class L2MinerConfig:
     min_stake_inft:      int = 100
     max_concurrent_shards: int = 4
     shard_timeout_ms:    int = 35_000
-    pg_dsn:              str = ""     # asyncpg DSN for pg_inft (registry + thoughts)
+    peerbit_url:         str = ""     # Peerbit sidecar URL (registry + thoughts)
 
     def to_l1_config(self) -> MinerConfig:
         """Convert to the MinerConfig expected by the L1 Miner parent class."""
@@ -93,5 +93,5 @@ def load_l2_config(path: str) -> L2MinerConfig:
         min_stake_inft=int(raw.get("min_stake_inft", 100)),
         max_concurrent_shards=int(raw.get("max_concurrent_shards", 4)),
         shard_timeout_ms=int(raw.get("shard_timeout_ms", 35_000)),
-        pg_dsn=raw.get("pg_dsn", ""),
+        peerbit_url=raw.get("peerbit_url", ""),
     )

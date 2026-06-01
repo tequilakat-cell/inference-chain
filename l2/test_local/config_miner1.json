@@ -19,6 +19,6 @@
   "min_stake_inft": 100,
   "rpc_port": 50052,
   "rpc_advertise_host": "192.168.198.224",
-  "pg_dsn": "postgresql://localhost/inft_memory",
+  "peerbit_url": "http://127.0.0.1:7731",
   "embed_model_path": "~/inference-chain/models/nomic-embed-text-v1.5.Q8_0.gguf"
 }

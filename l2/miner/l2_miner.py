@@ -121,8 +121,8 @@ class L2MinerConfig:
     # Phase 4: KV cache
     kv_cache_dir:          str = "/tmp/inft_kv"  # directory for prompt-cache files
     kv_cache_ttl_s:        int = 3600            # evict files older than this
-    # pg_inft memory rollup
-    pg_dsn:                Optional[str] = None  # asyncpg DSN; None disables memory rollup
+    # Peerbit sidecar URL for distributed memory
+    peerbit_url:           Optional[str] = None  # e.g. "http://127.0.0.1:7731"; None disables
     # Semantic memory — embedding model (nomic-embed-text-v1.5 = 768 dims)
     embed_model_path:      str = ""              # path to embedding GGUF; "" disables embeddings
 
@@ -158,7 +158,7 @@ def load_config(path: str) -> L2MinerConfig:
         max_memory_gb=int(raw.get("max_memory_gb", 0)),
         kv_cache_dir=raw.get("kv_cache_dir", "/tmp/inft_kv"),
         kv_cache_ttl_s=int(raw.get("kv_cache_ttl_s", 3600)),
-        pg_dsn=os.environ.get("PG_DSN", raw.get("pg_dsn", None)) or None,
+        peerbit_url=os.environ.get("PEERBIT_URL", raw.get("peerbit_url", None)) or None,
         embed_model_path=os.environ.get("EMBED_MODEL_PATH", raw.get("embed_model_path", "")),
     )
 
@@ -267,12 +267,12 @@ class L2Miner:
         # Queue of offers declined due to capacity — retried when shards finish
         self._pending_offers: list[dict] = []
 
-        # Miner registry — writes to pg_inft, degrades gracefully if pg_dsn absent
+        # Miner registry — writes to Peerbit sidecar, degrades gracefully if peerbit_url absent
         self._registry = RegistryClient(
             address=self.address,
             models=list(cfg.models.keys()),
             backend=cfg.backend or "cpu",
-            dsn=cfg.pg_dsn,
+            url=cfg.peerbit_url or "",
             p2p_addr=f"ws://{cfg.p2p_host}:{cfg.p2p_port}",
             l2_chain_id=cfg.l2_chain_id,
             max_shards=cfg.max_concurrent_shards,
@@ -302,10 +302,10 @@ class L2Miner:
             ttl_s=cfg.kv_cache_ttl_s,
         )
 
-        # pg_inft distributed memory rollup.
-        # None when pg_dsn is not configured — all ops degrade to no-ops.
+        # Peerbit distributed memory rollup via sidecar.
+        # None when peerbit_url is not configured — all ops degrade to no-ops.
         self._thought_store: Optional[ThoughtStore] = (
-            ThoughtStore(cfg.pg_dsn) if cfg.pg_dsn else None
+            ThoughtStore(cfg.peerbit_url) if cfg.peerbit_url else None
         )
 
         # Semantic memory embedder (nomic-embed-text-v1.5). No-op if path unset.
@@ -345,7 +345,7 @@ class L2Miner:
         self._p2p.subscribe(TOPICS["thought_sync"],         self._on_thought_sync)
         self._p2p.subscribe(TOPICS["rollup_broadcast"],     self._on_rollup_broadcast)
 
-        # Start pg_inft registry (non-blocking, degrades gracefully if pg_dsn absent)
+        # Start Peerbit registry (non-blocking, degrades gracefully if peerbit_url absent)
         asyncio.create_task(self._registry.start())
 
         # Start rpc-server sidecar for pipeline parallel worker role

@@ -1,8 +1,8 @@
 """
-ThoughtStore — asyncpg interface to the pg_inft PostgreSQL extension.
+ThoughtStore — aiohttp client for the Peerbit sidecar's thought/rollup API.
 
-Wraps all read/write operations with graceful degradation:
-if PostgreSQL is unavailable, all methods are no-ops and inference continues.
+All methods degrade gracefully: if the sidecar is unreachable, every operation
+is a no-op that returns an empty/False result without raising.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ log = logging.getLogger("thought_store")
 
 @dataclass
 class ThoughtResult:
-    """A single row returned by inft.inft_search."""
     id: int
     job_id: str
     miner_address: str
@@ -29,231 +28,90 @@ class ThoughtResult:
 
 class ThoughtStore:
     """
-    Async interface to the pg_inft extension.
+    HTTP client wrapping the Peerbit sidecar's /thoughts and /rollups endpoints.
 
-    All public methods degrade gracefully: if the PostgreSQL connection pool
-    is unavailable (self._pool is None), every operation is a no-op that
-    returns an empty/False result without raising.
+    url — base URL of the sidecar, e.g. "http://127.0.0.1:7731".
+    All public methods degrade gracefully when the sidecar is unavailable.
     """
 
-    def __init__(self, dsn: str) -> None:
-        self._dsn: str = dsn
-        self._pool = None  # asyncpg.Pool, set by connect()
+    def __init__(self, url: str) -> None:
+        self._url = url.rstrip("/")
+        self._session = None  # aiohttp.ClientSession
 
     async def connect(self) -> None:
-        """Create the asyncpg connection pool.  Logs a warning on failure."""
         try:
-            import asyncpg  # type: ignore
-            self._pool = await asyncpg.create_pool(
-                dsn=self._dsn,
-                min_size=1,
-                max_size=4,
-                command_timeout=10,
+            import aiohttp
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=10)
             )
-            log.info("thought_store_connected dsn=%s", self._dsn[:40])
+            log.info("thought_store_connected url=%s", self._url)
         except Exception as exc:
-            log.warning(
-                "thought_store_unavailable dsn=%s err=%s — memory rollup disabled",
-                self._dsn[:40], exc,
-            )
-            self._pool = None
+            log.warning("thought_store_unavailable url=%s err=%s", self._url, exc)
+            self._session = None
 
     async def close(self) -> None:
-        """Close the connection pool if it was opened."""
-        if self._pool is not None:
+        if self._session is not None:
             try:
-                await self._pool.close()
+                await self._session.close()
             except Exception as exc:
                 log.debug("thought_store_close_err err=%s", exc)
-            self._pool = None
+            self._session = None
+
+    # ── Internal helpers ──────────────────────────────────────────────────────
+
+    async def _get(self, path: str, params: dict | None = None) -> dict | None:
+        if self._session is None:
+            return None
+        try:
+            async with self._session.get(f"{self._url}{path}", params=params) as r:
+                body = await r.json()
+                return body.get("data") if body.get("ok") else None
+        except Exception as exc:
+            log.debug("thought_store_get_err path=%s err=%s", path, exc)
+            return None
+
+    async def _post(self, path: str, payload: dict) -> dict | None:
+        if self._session is None:
+            return None
+        try:
+            async with self._session.post(f"{self._url}{path}", json=payload) as r:
+                body = await r.json()
+                return body.get("data") if body.get("ok") else None
+        except Exception as exc:
+            log.debug("thought_store_post_err path=%s err=%s", path, exc)
+            return None
+
+    async def _delete(self, path: str) -> dict | None:
+        if self._session is None:
+            return None
+        try:
+            async with self._session.delete(f"{self._url}{path}") as r:
+                body = await r.json()
+                return body.get("data") if body.get("ok") else None
+        except Exception as exc:
+            log.debug("thought_store_delete_err path=%s err=%s", path, exc)
+            return None
+
+    # ── Thought log ───────────────────────────────────────────────────────────
 
     async def search(
-        self,
-        question: str,
-        model_id: str = "",
-        limit: int = 5,
+        self, question: str, model_id: str = "", limit: int = 5
     ) -> list[ThoughtResult]:
-        """
-        Search stored thoughts using the pg_inft staged BM25+trigram pipeline.
-
-        Returns an empty list if the pool is unavailable or any error occurs.
-        """
-        if self._pool is None:
+        data = await self._get(
+            "/thoughts/search",
+            {"q": question, "model_id": model_id, "limit": limit},
+        )
+        if not data:
             return []
-        try:
-            rows = await self._pool.fetch(
-                "SELECT id, job_id, miner_address, model_id, "
-                "       question_text, thinking_text, answer_text, score "
-                "FROM inft.inft_search($1, $2, $3)",
-                question,
-                model_id,
-                limit,
-            )
-            results = []
-            for row in rows:
-                results.append(ThoughtResult(
-                    id=row["id"],
-                    job_id=row["job_id"] or "",
-                    miner_address=row["miner_address"] or "",
-                    model_id=row["model_id"] or "",
-                    question_text=row["question_text"] or "",
-                    thinking_text=row["thinking_text"] or "",
-                    answer_text=row["answer_text"] or "",
-                    score=float(row["score"] or 0.0),
-                ))
-            return results
-        except Exception as exc:
-            log.debug("thought_store_search_err question=%r err=%s", question[:40], exc)
-            return []
+        return [_row_to_thought(r) for r in data]
 
-    async def recent(
-        self,
-        model_id: str = "",
-        limit: int = 20,
-    ) -> list[ThoughtResult]:
-        """
-        Return the most recently ingested thoughts ordered by recency.
-
-        Unlike search(), this does NOT run a full-text query — an empty BM25
-        query matches no lexemes and returns nothing, so the "recent" view must
-        read inft_thought_log directly. Optional model_id filter. Score is 0.0
-        (recency view is not ranked). Returns [] if the pool is unavailable.
-        """
-        if self._pool is None:
+    async def recent(self, model_id: str = "", limit: int = 20) -> list[ThoughtResult]:
+        data = await self._get(
+            "/thoughts/recent", {"model_id": model_id, "limit": limit}
+        )
+        if not data:
             return []
-        try:
-            cols = ("id, job_id, miner_address, model_id, "
-                    "question_text, thinking_text, answer_text")
-            if model_id:
-                rows = await self._pool.fetch(
-                    f"SELECT {cols} FROM inft.inft_thought_log "
-                    "WHERE model_id = $1 ORDER BY id DESC LIMIT $2",
-                    model_id, limit,
-                )
-            else:
-                rows = await self._pool.fetch(
-                    f"SELECT {cols} FROM inft.inft_thought_log "
-                    "ORDER BY id DESC LIMIT $1",
-                    limit,
-                )
-            return [
-                ThoughtResult(
-                    id=row["id"],
-                    job_id=row["job_id"] or "",
-                    miner_address=row["miner_address"] or "",
-                    model_id=row["model_id"] or "",
-                    question_text=row["question_text"] or "",
-                    thinking_text=row["thinking_text"] or "",
-                    answer_text=row["answer_text"] or "",
-                    score=0.0,
-                )
-                for row in rows
-            ]
-        except Exception as exc:
-            log.debug("thought_store_recent_err err=%s", exc)
-            return []
-
-    # ── Semantic memory (pgvector, pg_inft >= 1.4) ─────────────────────────────
-
-    @staticmethod
-    def _vec(embedding) -> str:
-        """Format a float sequence as a pgvector text literal '[a,b,c]'."""
-        return "[" + ",".join(format(float(x), ".7g") for x in embedding) + "]"
-
-    async def set_embedding(self, job_id: str, embedding) -> bool:
-        """Store the embedding for an already-ingested thought. False on error."""
-        if self._pool is None or not embedding:
-            return False
-        try:
-            return bool(await self._pool.fetchval(
-                "SELECT inft.inft_set_embedding($1, $2::vector)",
-                job_id, self._vec(embedding),
-            ))
-        except Exception as exc:
-            log.debug("thought_store_set_embedding_err job=%s err=%s", job_id, exc)
-            return False
-
-    async def search_semantic(self, embedding, model_id: str = "", limit: int = 20) -> list[ThoughtResult]:
-        """Cosine-nearest thoughts to the supplied query embedding. [] on error."""
-        if self._pool is None or not embedding:
-            return []
-        try:
-            rows = await self._pool.fetch(
-                "SELECT id, job_id, miner_address, model_id, question_text, "
-                "thinking_text, answer_text, score "
-                "FROM inft.inft_search_semantic($1::vector, $2, $3)",
-                self._vec(embedding), model_id, limit,
-            )
-            return [
-                ThoughtResult(
-                    id=r["id"], job_id=r["job_id"] or "",
-                    miner_address=r["miner_address"] or "", model_id=r["model_id"] or "",
-                    question_text=r["question_text"] or "", thinking_text=r["thinking_text"] or "",
-                    answer_text=r["answer_text"] or "", score=float(r["score"] or 0.0),
-                )
-                for r in rows
-            ]
-        except Exception as exc:
-            log.debug("thought_store_search_semantic_err err=%s", exc)
-            return []
-
-    async def upsert_rollup(
-        self, rollup_id: str, topic: str, model_id: str, summary: str,
-        source_count: int, source_job_ids, embedding, content_hash: bytes = b"",
-    ) -> bool:
-        """Store/replace a consolidated rollup memory. False on error."""
-        if self._pool is None:
-            return False
-        try:
-            await self._pool.execute(
-                "SELECT inft.inft_upsert_rollup($1,$2,$3,$4,$5,$6,$7::vector,$8)",
-                rollup_id, topic, model_id, summary, int(source_count),
-                list(source_job_ids), (self._vec(embedding) if embedding else None),
-                content_hash or b"",
-            )
-            return True
-        except Exception as exc:
-            log.debug("thought_store_upsert_rollup_err id=%s err=%s", rollup_id, exc)
-            return False
-
-    async def search_rollups(self, embedding, model_id: str = "", limit: int = 5) -> list[dict]:
-        """Cosine-nearest rollup memories to the supplied query embedding. [] on error."""
-        if self._pool is None or not embedding:
-            return []
-        try:
-            rows = await self._pool.fetch(
-                "SELECT rollup_id, topic, model_id, summary_text, source_count, score "
-                "FROM inft.inft_search_rollups($1::vector, $2, $3)",
-                self._vec(embedding), model_id, limit,
-            )
-            return [dict(r) for r in rows]
-        except Exception as exc:
-            log.debug("thought_store_search_rollups_err err=%s", exc)
-            return []
-
-    async def list_rollups(self, model_id: str = "", limit: int = 20) -> list[dict]:
-        """Return recent rollup memories (no vector). [] on error."""
-        if self._pool is None:
-            return []
-        try:
-            cols = ("rollup_id, topic, model_id, summary_text, source_count, "
-                    "source_job_ids, created_at::text AS created_at")
-            if model_id:
-                rows = await self._pool.fetch(
-                    f"SELECT {cols} FROM inft.inft_rollups "
-                    "WHERE model_id = $1 ORDER BY created_at DESC LIMIT $2",
-                    model_id, limit,
-                )
-            else:
-                rows = await self._pool.fetch(
-                    f"SELECT {cols} FROM inft.inft_rollups "
-                    "ORDER BY created_at DESC LIMIT $1",
-                    limit,
-                )
-            return [dict(r) for r in rows]
-        except Exception as exc:
-            log.debug("thought_store_list_rollups_err err=%s", exc)
-            return []
+        return [_row_to_thought(r) for r in data]
 
     async def ingest(
         self,
@@ -268,192 +126,153 @@ class ThoughtStore:
         tx_hash: Optional[str] = None,
         peer_origin: Optional[str] = None,
     ) -> bool:
-        """
-        Ingest a completed inference record into pg_inft.
+        data = await self._post("/thoughts", {
+            "job_id": job_id,
+            "miner_address": miner_address,
+            "model_id": model_id,
+            "question": question,
+            "thinking": thinking,
+            "answer": answer,
+            "proof_sig": proof_sig_hex,
+            "block_number": block_number,
+            "tx_hash": tx_hash,
+            "peer_origin": peer_origin,
+        })
+        return bool(data and data.get("ingested"))
 
-        proof_sig_hex is a 0x-prefixed hex string (65 bytes = 130 hex chars).
-        Returns False on any error.
-        """
-        if self._pool is None:
-            return False
-        try:
-            # Convert 0x-prefixed hex signature to raw bytes
-            hex_str = proof_sig_hex.lstrip("0x") if proof_sig_hex else ""
-            if not hex_str:
-                log.debug("thought_store_ingest_no_sig job=%s", job_id)
-                return False
-            sig_bytes = bytes.fromhex(hex_str)
+    # ── Semantic memory ───────────────────────────────────────────────────────
 
-            row = await self._pool.fetchrow(
-                "SELECT inft.inft_ingest("
-                "  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10"
-                ") AS thought_id",
-                job_id,
-                miner_address,
-                model_id,
-                question,
-                thinking,
-                answer,
-                sig_bytes,
-                block_number,
-                tx_hash,
-                peer_origin,
-            )
-            thought_id = row["thought_id"] if row else None
-            log.debug(
-                "thought_store_ingested job=%s thought_id=%s", job_id, thought_id
-            )
-            return thought_id is not None
-        except Exception as exc:
-            log.debug("thought_store_ingest_err job=%s err=%s", job_id, exc)
+    async def set_embedding(self, job_id: str, embedding) -> bool:
+        if not embedding:
             return False
+        data = await self._post("/thoughts/embedding", {
+            "job_id": job_id,
+            "embedding": list(float(x) for x in embedding),
+        })
+        return bool(data and data.get("updated"))
+
+    async def search_semantic(
+        self, embedding, model_id: str = "", limit: int = 20
+    ) -> list[ThoughtResult]:
+        if not embedding:
+            return []
+        data = await self._post("/thoughts/search/semantic", {
+            "embedding": list(float(x) for x in embedding),
+            "model_id": model_id,
+            "limit": limit,
+        })
+        if not data:
+            return []
+        return [_row_to_thought(r) for r in data]
+
+    # ── Rollups ───────────────────────────────────────────────────────────────
+
+    async def upsert_rollup(
+        self,
+        rollup_id: str,
+        topic: str,
+        model_id: str,
+        summary: str,
+        source_count: int,
+        source_job_ids,
+        embedding,
+        content_hash: bytes = b"",
+    ) -> bool:
+        data = await self._post("/rollups", {
+            "rollup_id": rollup_id,
+            "topic": topic,
+            "model_id": model_id,
+            "summary": summary,
+            "source_count": int(source_count),
+            "source_job_ids": list(source_job_ids),
+            "embedding": list(float(x) for x in embedding) if embedding else None,
+        })
+        return bool(data and data.get("upserted"))
+
+    async def search_rollups(
+        self, embedding, model_id: str = "", limit: int = 5
+    ) -> list[dict]:
+        if not embedding:
+            return []
+        data = await self._post("/rollups/search", {
+            "embedding": list(float(x) for x in embedding),
+            "model_id": model_id,
+            "limit": limit,
+        })
+        return data or []
+
+    async def list_rollups(self, model_id: str = "", limit: int = 20) -> list[dict]:
+        data = await self._get("/rollups", {"model_id": model_id, "limit": limit})
+        return data or []
+
+    # ── Live TPS (backed by benchmark store) ─────────────────────────────────
 
     async def update_live_tps(
-        self,
-        miner_address: str,
-        model_id:      str,
-        actual_tps:    float,
+        self, miner_address: str, model_id: str, actual_tps: float
     ) -> None:
-        """
-        Update the EWMA production throughput for this miner/model pair.
-
-        Called after each completed shard job so the sequencer can use live
-        performance data alongside the formal benchmark score.
-        alpha=0.3 is baked into the SQL function (inft.inft_update_live_tps).
-        """
-        if self._pool is None:
-            return
-        try:
-            await self._pool.execute(
-                "SELECT inft.inft_update_live_tps($1, $2, $3::float8)",
-                miner_address,
-                model_id,
-                float(actual_tps),
-            )
-        except Exception as exc:
-            log.debug(
-                "thought_store_live_tps_err miner=%s model=%s err=%s",
-                miner_address[:10], model_id, exc,
-            )
+        await self._post("/benchmarks/live-tps", {
+            "miner_address": miner_address,
+            "model_id": model_id,
+            "actual_tps": float(actual_tps),
+        })
 
     async def get_live_tps(
-        self,
-        miner_address: str,
-        model_id:      str,
+        self, miner_address: str, model_id: str
     ) -> Optional[dict]:
-        """
-        Return the latest benchmark + live TPS info for this miner/model pair.
-        Returns None if pg_inft is unavailable or no row exists.
-        Dict keys: tokens_per_sec, live_tps, live_sample_count.
-        """
-        if self._pool is None:
-            return None
-        try:
-            row = await self._pool.fetchrow(
-                "SELECT tokens_per_sec, live_tps, live_sample_count "
-                "FROM inft.inft_get_benchmark($1, $2)",
-                miner_address,
-                model_id,
-            )
-            return dict(row) if row else None
-        except Exception as exc:
-            log.debug(
-                "thought_store_get_tps_err miner=%s model=%s err=%s",
-                miner_address[:10], model_id, exc,
-            )
-            return None
+        from urllib.parse import quote
+        data = await self._get(
+            f"/benchmarks/{miner_address}/{quote(model_id, safe='')}"
+        )
+        return data  # already dict or None
+
+    # ── Job context prefetch ──────────────────────────────────────────────────
 
     async def set_job_context(
         self,
-        job_id:       str,
-        query_text:   str,
+        job_id: str,
+        query_text: str,
         context_text: str,
         context_hash: str,
-        model_id:     str,
-        n_entries:    int,
+        model_id: str,
+        n_entries: int,
     ) -> bool:
-        """
-        Write sequencer-assembled context for a job into the local pg_inft store.
-
-        Called at job-dispatch time (sequencer side) and on ContextLoadOffer receipt
-        (miner side) so every node has the pre-fetched context ready before inference
-        begins.  Returns False on any error without raising.
-        """
-        if self._pool is None:
-            return False
-        try:
-            await self._pool.execute(
-                "SELECT inft.inft_set_job_context($1,$2,$3,$4,$5,$6)",
-                job_id, query_text, context_text, context_hash, model_id, n_entries,
-            )
-            return True
-        except Exception as exc:
-            log.debug("thought_store_set_ctx_err job=%s err=%s", job_id, exc)
-            return False
+        data = await self._post("/contexts", {
+            "job_id": job_id,
+            "query_text": query_text,
+            "context_text": context_text,
+            "context_hash": context_hash,
+            "model_id": model_id,
+            "n_entries": n_entries,
+        })
+        return bool(data and data.get("set"))
 
     async def get_job_context(self, job_id: str) -> Optional[dict]:
-        """
-        Retrieve pre-fetched context for a job from the local pg_inft store.
-
-        Returns a dict with keys {query_text, context_text, context_hash, model_id,
-        n_entries}, or None if not found or expired.  Used by miners on the inference
-        hot path to skip the sequential ThoughtStore.search() call.
-        """
-        if self._pool is None:
-            return None
-        try:
-            row = await self._pool.fetchrow(
-                "SELECT query_text, context_text, context_hash, model_id, n_entries "
-                "FROM inft.inft_get_job_context($1)",
-                job_id,
-            )
-            return dict(row) if row else None
-        except Exception as exc:
-            log.debug("thought_store_get_ctx_err job=%s err=%s", job_id, exc)
-            return None
+        return await self._get(f"/contexts/{job_id}")
 
     async def expire_job_contexts(self) -> int:
-        """Delete expired job context rows.  Returns the number of rows deleted."""
-        if self._pool is None:
-            return 0
-        try:
-            row = await self._pool.fetchrow(
-                "SELECT inft.inft_expire_job_contexts() AS n"
-            )
-            return int(row["n"]) if row else 0
-        except Exception as exc:
-            log.debug("thought_store_expire_ctx_err err=%s", exc)
-            return 0
+        data = await self._delete("/contexts/expired")
+        return int(data.get("deleted", 0)) if data else 0
+
+    # ── Peer sync ─────────────────────────────────────────────────────────────
 
     async def record_peer(
-        self,
-        peer_address: str,
-        job_id: str,
-        rejected: bool,
+        self, peer_address: str, job_id: str, rejected: bool
     ) -> None:
-        """
-        Upsert a row in inft.inft_peer_sync tracking peer statistics.
-        No-op if pool is unavailable.
-        """
-        if self._pool is None:
-            return
-        try:
-            await self._pool.execute(
-                """
-                INSERT INTO inft.inft_peer_sync
-                    (peer_address, last_seen, thoughts_received, proofs_rejected, last_job_id)
-                VALUES ($1, now(), 1, $2::int, $3)
-                ON CONFLICT (peer_address) DO UPDATE SET
-                    last_seen         = now(),
-                    thoughts_received = inft.inft_peer_sync.thoughts_received + 1,
-                    proofs_rejected   = inft.inft_peer_sync.proofs_rejected + EXCLUDED.proofs_rejected,
-                    last_job_id       = EXCLUDED.last_job_id
-                """,
-                peer_address,
-                1 if rejected else 0,
-                job_id,
-            )
-        except Exception as exc:
-            log.debug(
-                "thought_store_record_peer_err peer=%s err=%s", peer_address, exc
-            )
+        await self._post("/peers", {
+            "peer_address": peer_address,
+            "job_id": job_id,
+            "rejected": rejected,
+        })
+
+
+def _row_to_thought(r: dict) -> ThoughtResult:
+    return ThoughtResult(
+        id=int(r.get("id", 0)),
+        job_id=r.get("job_id", ""),
+        miner_address=r.get("miner_address", ""),
+        model_id=r.get("model_id", ""),
+        question_text=r.get("question_text", ""),
+        thinking_text=r.get("thinking_text", ""),
+        answer_text=r.get("answer_text", ""),
+        score=float(r.get("score", 0.0)),
+    )

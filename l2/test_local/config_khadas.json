@@ -22,5 +22,5 @@
   "rpc_advertise_host": "192.168.198.48",
   "rpc_server_bin": "/home/khadas/llama_cpp_src/build/bin/rpc-server",
   "max_memory_gb": 10,
-  "pg_dsn": "postgresql://khadas:khadas@localhost/inft_memory"
+  "peerbit_url": "http://127.0.0.1:7731"
 }

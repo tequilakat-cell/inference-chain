@@ -132,15 +132,15 @@ class InferenceChainNode:
         self.benchmark = BenchmarkRunner(self.sequencer, self.p2p, cfg)
         self.p2p.subscribe(TOPICS["benchmark_responses"], self.benchmark.on_benchmark_response)
 
-        # BenchmarkStore + ThoughtStore: persistent pg_inft backing.
+        # BenchmarkStore + ThoughtStore: Peerbit distributed store via sidecar.
         # Optional — chain works without it.
-        pg_dsn = cfg.get("pg_dsn") or os.environ.get("PG_DSN")
+        peerbit_url = cfg.get("peerbit_url") or os.environ.get("PEERBIT_URL")
         self.benchmark_store: Optional[BenchmarkStore] = None
         self.thought_store: Optional[ThoughtStore] = None
-        if pg_dsn:
-            self.benchmark_store = BenchmarkStore(pg_dsn)
+        if peerbit_url:
+            self.benchmark_store = BenchmarkStore(peerbit_url)
             await self.benchmark_store.connect()
-            self.thought_store = ThoughtStore(pg_dsn)
+            self.thought_store = ThoughtStore(peerbit_url)
             await self.thought_store.connect()
             log.info("thought_store_connected")
             # Give ShardProtocol access so dispatch_job() can proactively pre-fetch

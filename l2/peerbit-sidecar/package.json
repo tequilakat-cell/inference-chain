@@ -1,0 +1,25 @@
+{
+  "name": "peerbit-sidecar",
+  "version": "1.0.0",
+  "description": "Peerbit P2P database sidecar for inference-chain",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@dao-xyz/borsh": "^6",
+    "@peerbit/document": "^5",
+    "@peerbit/program": "^3",
+    "express": "^4",
+    "peerbit": "^3"
+  },
+  "devDependencies": {
+    "@types/express": "^4",
+    "@types/node": "^20",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}

@@ -1268,3 +1268,153 @@ class RPCHandlers:
             }
             for r in results
         ]
+
+    # ── Memory rollup (semantic consolidation) ─────────────────────────────────
+
+    async def inft_rollupMemory(self, params) -> dict:
+        """
+        Consolidate a cluster of semantically-similar thoughts into one distilled
+        memory using the chain's own inference (map-reduce across miners), then
+        store it in inft_rollups so future inferences can inject it.
+
+        params: [query_embedding(list[768]), model_id="", k=30, n_shards=3, topic="", timeout_s=180]
+        The CALLER supplies the 768-dim query embedding (the sequencer has no
+        embed model). Returns: {rollup_id, topic, summary, source_count, source_job_ids}.
+        """
+        import uuid, asyncio
+        from ..mempool import build_transaction
+        from ..types import TxType
+        from ..crypto import address_from_key, keccak256_hex
+
+        if not params or not isinstance(params[0], list):
+            raise ValueError("inft_rollupMemory requires [query_embedding, model_id?, k?, n_shards?, topic?]")
+        query_emb = params[0]
+        model_id  = str(params[1]) if len(params) > 1 else ""
+        k         = int(params[2]) if len(params) > 2 else 30
+        n_shards  = int(params[3]) if len(params) > 3 else 3
+        topic     = str(params[4]) if len(params) > 4 else ""
+        timeout_s = float(params[5]) if len(params) > 5 else 180.0
+
+        if self._thought_store is None:
+            raise ValueError("memory store (pg_inft) not configured on this node")
+        if len(query_emb) != 768:
+            raise ValueError(f"query_embedding must be 768-dim, got {len(query_emb)}")
+
+        # 1. Semantic cluster: nearest thoughts to the query embedding.
+        hits = await self._thought_store.search_semantic(query_emb, model_id, k)
+        hits = [h for h in hits if (h.answer_text or "").strip()]
+        if not hits:
+            raise ValueError("no embedded thoughts match the query (run jobs first, or embeddings missing)")
+
+        corpus = "\n\n".join(f"Q: {h.question_text}\nA: {h.answer_text}" for h in hits)
+        source_job_ids = [h.job_id for h in hits]
+
+        # Clustering may span models (model_id=""), but the summarization jobs need a
+        # concrete model that staked, benchmarked miners actually run — fall back to
+        # the top hit's model so the map/reduce jobs pass the liveness/benchmark gates.
+        infer_model = model_id or hits[0].model_id
+        if not infer_model:
+            raise ValueError("could not determine a model for summarization; pass model_id")
+
+        # Cap shard count to the number of live miners so context_split does not
+        # drop chunks (a chunk per miner; extra chunks would go unassigned).
+        live = len(self._shards.active_miners()) if self._shards else 1
+        n_shards = max(1, min(n_shards, live or 1))
+
+        privkey = self._seq._privkey
+        if not privkey:
+            raise ValueError("sequencer has no signing key configured")
+        sender = address_from_key(privkey)
+        nonce  = self._seq.state().nonce(sender)
+        pending = await self._seq.mempool.pending_for(sender)
+        if pending:
+            nonce = max(pending) + 1
+
+        map_job_id = str(uuid.uuid4())
+        map_prompt = (
+            "Summarize the key facts and answers in the following Q&A pairs as "
+            "concise bullet points. Do not repeat the questions:\n\n" + corpus
+        )
+        map_mode = "context_split" if n_shards > 1 else "parallel_sample"
+
+        map_tx = build_transaction(
+            tx_type=TxType.JOB_POST, sender=sender, nonce=nonce,
+            payload={
+                "job_id": map_job_id, "model_id": infer_model, "prompt": map_prompt,
+                "original_prompt": map_prompt, "max_tokens": 256,
+                "shard_mode": map_mode, "n_shards": n_shards,
+                "fee_inft": n_shards * 10, "timeout_ms": 60_000,
+            },
+            chain_id=self._seq.chain_id, private_key=privkey, gas_price=1,
+        )
+        ok, reason = await self._seq.submit_transaction(map_tx)
+        if not ok:
+            raise ValueError(f"rollup map job rejected: {reason}")
+
+        # With multiple shards, the map produces concatenated partial summaries;
+        # a chained REDUCE job merges them into one. With a single shard the map
+        # already summarized the whole corpus, so skip the reduce.
+        await_job_id = map_job_id
+        if n_shards > 1:
+            reduce_job_id = str(uuid.uuid4())
+            reduce_tpl = (
+                "Combine the following notes into one consolidated, non-redundant "
+                "summary:\n\n{prev_output}"
+            )
+            reduce_tx = build_transaction(
+                tx_type=TxType.JOB_POST, sender=sender, nonce=nonce + 1,
+                payload={
+                    "job_id": reduce_job_id, "model_id": infer_model,
+                    "prompt_template": reduce_tpl, "prompt": "", "original_prompt": "",
+                    "max_tokens": 320, "shard_mode": "parallel_sample", "n_shards": 1,
+                    "fee_inft": 10, "timeout_ms": 60_000,
+                    "parent_job_id": map_job_id, "chain_step": 1,
+                },
+                chain_id=self._seq.chain_id, private_key=privkey, gas_price=1,
+            )
+            ok, reason = await self._seq.submit_transaction(reduce_tx)
+            if not ok:
+                raise ValueError(f"rollup reduce job rejected: {reason}")
+            await_job_id = reduce_job_id
+
+        # Await the final job.
+        elapsed, summary = 0.0, None
+        while elapsed < timeout_s:
+            r = await self.inft_getJob([await_job_id])
+            if r and r.get("status") == "complete":
+                summary = (r.get("final_output") or "").strip()
+                break
+            if r and r.get("status") == "failed":
+                raise ValueError("rollup job failed (a summarization shard timed out)")
+            await asyncio.sleep(1.0)
+            elapsed += 1.0
+        if not summary:
+            raise TimeoutError(f"rollup did not complete within {timeout_s}s")
+
+        rollup_id = await_job_id
+        chash = keccak256_hex(summary.encode())
+        await self._thought_store.upsert_rollup(
+            rollup_id=rollup_id, topic=(topic or hits[0].question_text[:80]),
+            model_id=model_id, summary=summary, source_count=len(hits),
+            source_job_ids=source_job_ids, embedding=query_emb,
+            content_hash=bytes.fromhex(chash[2:]),
+        )
+        log.info(
+            "rollup_created id=%s sources=%d shards=%d summary_chars=%d",
+            rollup_id[:12], len(hits), n_shards, len(summary),
+        )
+        return {
+            "rollup_id":      rollup_id,
+            "topic":          topic or hits[0].question_text[:80],
+            "summary":        summary,
+            "source_count":   len(hits),
+            "source_job_ids": source_job_ids,
+        }
+
+    async def inft_getRollups(self, params) -> list:
+        """List recent consolidated rollup memories. params: [model_id="", limit=20]"""
+        if self._thought_store is None:
+            return []
+        model_id = str(params[0]) if params else ""
+        limit    = int(params[1]) if len(params) > 1 else 20
+        return await self._thought_store.list_rollups(model_id, limit)

@@ -231,6 +231,30 @@ class ThoughtStore:
             log.debug("thought_store_search_rollups_err err=%s", exc)
             return []
 
+    async def list_rollups(self, model_id: str = "", limit: int = 20) -> list[dict]:
+        """Return recent rollup memories (no vector). [] on error."""
+        if self._pool is None:
+            return []
+        try:
+            cols = ("rollup_id, topic, model_id, summary_text, source_count, "
+                    "source_job_ids, created_at::text AS created_at")
+            if model_id:
+                rows = await self._pool.fetch(
+                    f"SELECT {cols} FROM inft.inft_rollups "
+                    "WHERE model_id = $1 ORDER BY created_at DESC LIMIT $2",
+                    model_id, limit,
+                )
+            else:
+                rows = await self._pool.fetch(
+                    f"SELECT {cols} FROM inft.inft_rollups "
+                    "ORDER BY created_at DESC LIMIT $1",
+                    limit,
+                )
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            log.debug("thought_store_list_rollups_err err=%s", exc)
+            return []
+
     async def ingest(
         self,
         job_id: str,

@@ -78,8 +78,8 @@ services:
   # ── L2 miner (CPU inference) ───────────────────────────────────────────────
   miner:
     build:
-      context: .
-      dockerfile: Dockerfile.miner
+      context: ..
+      dockerfile: l2/Dockerfile.miner
     restart: unless-stopped
     environment:
       <<: *l2-env

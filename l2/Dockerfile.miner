@@ -1,0 +1,60 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app/l2
+
+# ── System dependencies for building llama-cpp-python ──────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake git curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Python core dependencies ───────────────────────────────────────────────
+RUN pip install --no-cache-dir \
+    web3>=7.0.0 \
+    eth-account>=0.13.0 \
+    aiohttp>=3.10.0 \
+    websockets>=13.0 \
+    prometheus-client>=0.21.0 \
+    cryptography>=43.0.0 \
+    python-dotenv>=1.0.0 \
+    requests>=2.32.0 \
+    pycryptodome>=3.20.0
+
+# ── Inference backend (llama-cpp-python) ───────────────────────────────────
+# CPU backend builds fast; for Vulkan/CUDA pass --build-arg at image build:
+#   docker build --build-arg LLAMA_BACKEND=vulkan -t ic-miner .
+ARG LLAMA_BACKEND=cpu
+RUN if [ "$LLAMA_BACKEND" = "vulkan" ]; then \
+        CMAKE_ARGS="-DLLAMA_VULKAN=on" pip install --no-cache-dir llama-cpp-python; \
+    elif [ "$LLAMA_BACKEND" = "cuda" ]; then \
+        CMAKE_ARGS="-DLLAMA_CUDA=on" pip install --no-cache-dir llama-cpp-python; \
+    else \
+        pip install --no-cache-dir llama-cpp-python; \
+    fi
+
+# ── L1 miner backends + keys (required for inference) ──────────────────────
+COPY l1/miner/backends/ /app/l1/miner/backends/
+COPY l1/miner/keys.py    /app/l1/miner/
+COPY l1/miner/memory/    /app/l1/miner/memory/
+
+# ── L2 chain modules (P2P, crypto, types, shard, mine) ─────────────────────
+COPY l2/chain/ /app/l2/chain/
+
+# ── L2 mining module (CPU proof-of-work miner) ─────────────────────────────
+COPY l2/mining/ /app/l2/mining/
+
+# ── L2 miner code ──────────────────────────────────────────────────────────
+COPY l2/miner/ /app/l2/miner/
+
+# ── Default config (override via volume mount or env vars) ─────────────────
+COPY l2/config_l2.docker.json /app/l2/config_l2.json
+
+EXPOSE 9001 9090
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -sf http://localhost:9090/health || exit 1
+
+ENTRYPOINT ["python", "-m", "miner"]
+CMD ["--config", "config_l2.json"]

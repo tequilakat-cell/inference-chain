@@ -38,8 +38,16 @@ class ShardMode:
     PARALLEL_SAMPLE   = "parallel_sample"    # N miners, same prompt, race/vote
     CONTEXT_SPLIT     = "context_split"      # prompt chunked, results concatenated
     SPECULATIVE       = "speculative"        # draft miner + verifier, 3-4x speedup
-    TENSOR_PARALLEL   = "tensor_parallel"    # legacy alias — use PIPELINE_PARALLEL
-    PIPELINE_PARALLEL = "pipeline_parallel"  # llama.cpp RPC: coordinator + workers share layers
+    PIPELINE_PARALLEL = "pipeline_parallel"  # llama.cpp RPC: both nodes in every forward pass
+    TENSOR_PARALLEL   = "tensor_parallel"    # alias for PIPELINE_PARALLEL (same RPC mechanism)
+    #
+    # PIPELINE_PARALLEL / TENSOR_PARALLEL both use llama.cpp RPC + --tensor-split.
+    # With equal fractions (0.5 / 0.5) this is true cross-node Tensor Parallelism:
+    #   • Both nodes participate in EVERY layer of EVERY forward pass
+    #   • Node 1 computes columns [0 .. N/2] of attention/FFN weight matrices
+    #   • Node 2 computes columns [N/2 .. N] simultaneously
+    #   • Results are all-reduced before the next layer
+    # The TP groups span both nodes — they are tightly interdependent.
 
 # ── Job and shard status ──────────────────────────────────────────────────────
 

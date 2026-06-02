@@ -153,15 +153,11 @@ def _try_llama_cpp(model_map: dict[str, str]) -> Optional[InferenceBackend]:
 
 
 def _try_jacobi(model_map: dict[str, str]) -> Optional[InferenceBackend]:
-    """Jacobi parallel decoding backend — standalone C++ jacobi-server."""
+    """Lookahead Decoding backend (replaces Jacobi; 'jacobi' name kept for config compat)."""
     try:
-        from .jacobi_backend import JacobiBackend
-        backend = JacobiBackend(model_map)
-        # Accept if binary found on disk OR a remote jacobi-server URL is set
-        binary = backend.info.get("binary")
-        remote = os.environ.get("JACOBI_SERVER_URL", "")
-        if binary or remote:
-            return backend
+        import llama_cpp  # noqa: F401 — need llama_cpp for in-process inference
+        from .jacobi_backend import LookaheadBackend
+        return LookaheadBackend(model_map)
     except Exception as exc:
-        log.debug("jacobi_unavailable err=%s", exc)
+        log.debug("lookahead_unavailable err=%s", exc)
     return None

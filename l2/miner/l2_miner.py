@@ -224,19 +224,22 @@ class Embedder:
         if not self.enabled or not text:
             return []
         try:
+            # Lock covers both load and inference: llama_cpp is not safe for
+            # concurrent use across coroutines even after the model is loaded.
             async with self._lock:
                 if self._llm is None:
                     await asyncio.get_event_loop().run_in_executor(None, self._load)
 
-            def _run() -> list:
-                out = self._llm.create_embedding(text)
-                vec = out["data"][0]["embedding"]
-                # nomic in llama.cpp may return a nested [[...]] for pooled output
-                if vec and isinstance(vec[0], list):
-                    vec = vec[0]
-                return [float(x) for x in vec]
+                def _run() -> list:
+                    out = self._llm.create_embedding(text)
+                    vec = out["data"][0]["embedding"]
+                    # nomic in llama.cpp may return a nested [[...]] for pooled output
+                    if vec and isinstance(vec[0], list):
+                        vec = vec[0]
+                    return [float(x) for x in vec]
 
-            vec = await asyncio.get_event_loop().run_in_executor(None, _run)
+                vec = await asyncio.get_event_loop().run_in_executor(None, _run)
+
             if len(vec) != self.DIM:
                 log.warning("embed_dim_mismatch got=%d want=%d", len(vec), self.DIM)
                 return []

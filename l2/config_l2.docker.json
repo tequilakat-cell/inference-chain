@@ -1,0 +1,21 @@
+{
+  "private_key": "",
+  "models": {},
+  "models_dir": "/models",
+  "l2_rpc_url": "http://sequencer:8545",
+  "l2_chain_id": 2026,
+  "bootstrap_peers": [],
+  "p2p_host": "0.0.0.0",
+  "p2p_port": 9001,
+  "health_port": 9090,
+  "max_concurrent_shards": 4,
+  "key_dir": "/root/.inference-miner/keys",
+  "log_level": "INFO",
+  "backend": "",
+  "encryption_enabled": false,
+  "min_stake_inft": 100,
+  "kv_cache_dir": "/tmp/inft_kv",
+  "kv_cache_ttl_s": 3600,
+  "peerbit_url": null,
+  "embed_model_path": ""
+}

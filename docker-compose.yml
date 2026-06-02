@@ -164,8 +164,8 @@ services:
   # ── L2: Miner ───────────────────────────────────────────────────────────────
   l2-miner:
     build:
-      context: ./l2
-      dockerfile: Dockerfile.miner
+      context: .
+      dockerfile: l2/Dockerfile.miner
     restart: unless-stopped
     environment:
       <<: *l2-env

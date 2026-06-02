@@ -1,0 +1,22 @@
+{
+  "private_key": "581a82fffdcea6e0ac9cdd2ddccdb73f95c21537365085484eb6ac16e3456420",
+  "models": {
+    "Qwen/Qwen2.5-0.5B-Instruct": "~/inference-chain/models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+  },
+  "l2_rpc_url": "http://104.197.6.1/rpc",
+  "l2_chain_id": 2026,
+  "bootstrap_peers": [
+    "ws://104.197.6.1:9000"
+  ],
+  "p2p_host": "0.0.0.0",
+  "p2p_port": 19002,
+  "health_port": 19092,
+  "max_concurrent_shards": 4,
+  "key_dir": "~/.inference-miner/keys-miner2",
+  "log_level": "INFO",
+  "backend": "jacobi",
+  "encryption_enabled": false,
+  "min_stake_inft": 100,
+  "peerbit_url": "http://127.0.0.1:7731",
+  "embed_model_path": "~/inference-chain/models/nomic-embed-text-v1.5.Q8_0.gguf"
+}

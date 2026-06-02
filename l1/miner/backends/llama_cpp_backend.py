@@ -183,70 +183,55 @@ class LlamaCppBackend(InferenceBackend):
         tensor_split_fracs: list[float] | None = None,
     ) -> str:
         """
-        Pipeline-parallel coordinator inference.
+        Tensor-parallel coordinator inference via llama.cpp RPC.
 
-        Each node in a pipeline_parallel job loads its assigned model layers
-        from its OWN local model file. The coordinator runs inference locally
-        (no layer-weight transfer over the network). Workers participate via
-        the rpc-server sidecar and receive compute requests for their layers
-        once the model is loaded, but the coordinator always loads from its
-        own local copy — network bandwidth is only used for inter-layer
-        activations during generation, not for weight distribution.
+        When rpc_servers is non-empty, always delegates to _generate_with_rpc_weights
+        which runs llama-cli --rpc <workers> --tensor-split <fracs>.  Both the
+        coordinator and every worker participate in every forward pass:
+          • coordinator computes its tensor-split fraction of each layer
+          • workers compute their fraction simultaneously (cross-node TP)
+          • activations flow back to coordinator for the next layer
 
-        If a fast RPC path becomes available (rpc_server_bin with shared
-        weights / RDMA), set MINER_LLAMA_RPC_WEIGHT_DISTRIBUTION=1 to enable
-        the legacy llama-cli --rpc weight-push path.
+        No flag is required — cross-node tensor parallelism is unconditional
+        whenever worker RPC addresses are present in the shard spec.
 
-        prompt_cache_path (Phase 4): if provided, passes --prompt-cache to
-        llama-cli so KV activations for the context prefix are saved/reused
-        between jobs that share the same context_hash.
+        prompt_cache_path: if provided, passes --prompt-cache to llama-cli so
+        KV activations for the context prefix are saved/reused across jobs that
+        share the same context_hash.
         """
-        # Use the weight-distribution RPC path only when explicitly enabled.
-        # By default the coordinator loads locally to avoid sending the full
-        # model over the network (which at LAN speeds can take minutes).
-        use_rpc_weights = os.environ.get("MINER_LLAMA_RPC_WEIGHT_DISTRIBUTION", "").lower() in ("1", "true", "yes")
-
-        if use_rpc_weights and rpc_servers:
+        # When RPC workers are available, always distribute computation across them.
+        # This makes the TP groups cross-node and interdependent: every forward pass
+        # involves all nodes simultaneously (coordinator + workers each compute their
+        # tensor-split fraction of every layer).
+        # The env-var gate MINER_LLAMA_RPC_WEIGHT_DISTRIBUTION is removed — tensor
+        # parallelism is unconditional when rpc_servers is non-empty.
+        if rpc_servers:
             return await self._generate_with_rpc_weights(
                 model_id, prompt, max_tokens, temperature, rpc_servers,
                 prompt_cache_path, max_memory_gb, worker_memory_gb, tensor_split_fracs,
             )
 
-        # Default path: coordinator runs inference locally via Python bindings.
-        # The model is cached after first load so subsequent jobs are fast.
-        # Workers hold their own layer slices and participate via rpc-server sidecar.
-        #
-        # Calculate n_gpu_layers from max_memory_gb budget so we don't OOM.
-        # When the model file is larger than the memory budget, use pure CPU
-        # (n_gpu_layers=0) so that Metal allocations don't eat into the OS
-        # page cache — Apple Silicon CPU inference is memory-bandwidth-bound,
-        # and maximizing the page cache hit rate matters more than GPU layers
-        # when RAM < model size.
+        # Fallback: no RPC workers present — run entirely on this node.
         if max_memory_gb > 0:
             try:
                 model_size_gb = os.path.getsize(self._model_path(model_id)) / (1024 ** 3)
             except OSError:
                 model_size_gb = 16.0
             if model_size_gb > max_memory_gb:
-                # Memory-constrained: CPU-only maximizes page-cache headroom.
                 n_gpu_layers = 0
             else:
                 per_layer_mb = 280
                 n_gpu_layers = max(0, int(max_memory_gb * 1024 * 0.6 / per_layer_mb))
-            # Reduce context to free KV-cache memory on constrained machines.
             n_ctx = min(self._n_ctx, max(512, int(max_memory_gb * 128)))
         else:
             n_gpu_layers = self._n_gpu_layers
             n_ctx = self._n_ctx
 
         log.info(
-            "pipeline_coordinator_local model=%s rpc_peers=%s ngl=%d ctx=%d cache=%s ts=%s",
-            model_id, rpc_servers or "none", n_gpu_layers, n_ctx, prompt_cache_path or "none",
-            [f"{f:.2f}" for f in (tensor_split_fracs or [])],
+            "tp_coordinator_local model=%s ngl=%d ctx=%d cache=%s",
+            model_id, n_gpu_layers, n_ctx, prompt_cache_path or "none",
         )
 
-        # Disable chain-of-thought for thinking models (Qwen3, DeepSeek-R1, etc.)
-        # so the token budget is spent on the answer, not internal reasoning.
         effective_prompt = prompt
         if not prompt.lstrip().startswith("/no_think"):
             effective_prompt = "/no_think\n" + prompt
@@ -272,10 +257,8 @@ class LlamaCppBackend(InferenceBackend):
         tensor_split_fracs: list[float] | None = None,
     ) -> str:
         """
-        Legacy RPC path: coordinator sends layer weights to workers over the
-        network via llama-cli --rpc. Only use when all nodes are on a fast
-        interconnect (1 Gbps+) since the full model weights are transferred.
-        Enable with MINER_LLAMA_RPC_WEIGHT_DISTRIBUTION=1.
+        Cross-node TP via llama-cli --rpc --tensor-split.
+        Called automatically by generate_with_rpc whenever rpc_servers is non-empty.
         """
         model_path = self._model_path(model_id)
         llama_cli  = _find_binary("llama-cli")
